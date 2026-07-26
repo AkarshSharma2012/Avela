@@ -9,10 +9,10 @@ function FindMoreButton({ nextShown, className }: { nextShown: number; className
   return (
     <Link
       href={`/dashboard?shown=${nextShown}`}
-      className={cn(buttonVariants({ variant: "outline" }), className)}
+      className={cn(buttonVariants({ variant: "default", size: "lg" }), className)}
     >
-      Find more
-      <ArrowRight aria-hidden="true" className="size-3.5" />
+      Find more opportunities
+      <ArrowRight aria-hidden="true" className="size-4" />
     </Link>
   );
 }

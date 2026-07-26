@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, TriangleAlert } from "lucide-react";
+import { ArrowRight, Lightbulb, TriangleAlert } from "lucide-react";
 
 import { EligibilityBadge } from "@/components/opportunities/eligibility-badge";
 import { MatchBadge } from "@/components/opportunities/match-badge";
@@ -16,8 +16,16 @@ import {
   formatLastVerified,
   formatLocation,
 } from "@/lib/opportunities/format";
-import type { MatchResult } from "@/lib/opportunities/matching";
+import type { MatchResult, MatchTier } from "@/lib/opportunities/matching";
+import { cn } from "@/lib/utils";
 import type { Opportunity } from "@/types/opportunity";
+
+/** A quiet left-edge accent tying a card's color to how well it fits — never the card's only signal (MatchBadge's icon+text stays the source of truth), just a scannable hint across a grid of cards. */
+const TIER_ACCENT: Record<MatchTier, string> = {
+  strong_fit: "border-l-primary",
+  possible_fit: "border-l-gold",
+  limited_fit: "border-l-border",
+};
 
 function OpportunityCard({
   opportunity,
@@ -25,6 +33,7 @@ function OpportunityCard({
   matchResult,
   eligibilityResult,
   sourceName = null,
+  showWhyItFits = false,
 }: {
   opportunity: Opportunity;
   isSaved: boolean;
@@ -32,12 +41,21 @@ function OpportunityCard({
   eligibilityResult: EligibilityResult;
   /** The registered `opportunity_sources.name` this listing was ingested from, when known. Never fabricated — omitted entirely for sample/manually-imported rows with no source_id. */
   sourceName?: string | null;
+  /** Surfaces the engine's own top match reason in a small labeled block. Off by default so existing pages (Opportunities, Saved) keep their current density; the dashboard's "Chosen for You" cards opt in. Never shown for a limited_fit result, where the top "reason" is actually a shortfall, not something to frame as "why this fits". */
+  showWhyItFits?: boolean;
 }) {
   const showUncertaintyWarning =
     opportunity.deadline_status === "unknown" || eligibilityResult.status === "unclear";
+  const whyItFits =
+    showWhyItFits && matchResult.tier !== "limited_fit" ? matchResult.reasons[0] : null;
 
   return (
-    <article className="flex flex-col gap-3 rounded-md border border-border bg-card px-5 py-4">
+    <article
+      className={cn(
+        "flex flex-col gap-3 rounded-md border border-l-4 border-border bg-card px-5 py-4",
+        TIER_ACCENT[matchResult.tier]
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-heading text-lg text-foreground">
@@ -64,6 +82,13 @@ function OpportunityCard({
         <MatchBadge result={matchResult} />
         <EligibilityBadge result={eligibilityResult} />
       </div>
+
+      {whyItFits && (
+        <p className="flex items-start gap-1.5 rounded-md border border-insight/25 bg-insight/10 px-3 py-2 text-xs text-insight">
+          <Lightbulb aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+          {whyItFits}
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Chip size="sm">{TYPE_LABELS[opportunity.opportunity_type]}</Chip>

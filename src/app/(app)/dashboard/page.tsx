@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, Bookmark, Compass } from "lucide-react";
+import {
+  AlertTriangle,
+  Bookmark,
+  CalendarClock,
+  Compass,
+  Layers,
+  TrendingUp,
+} from "lucide-react";
 
 import { FeaturedMatchCard } from "@/components/opportunities/featured-match-card";
 import { FindMoreButton } from "@/components/opportunities/find-more-button";
@@ -12,9 +19,12 @@ import { requireProfile } from "@/lib/auth/dal";
 import { getOnboardingSummary } from "@/lib/onboarding/dal";
 import {
   EXPERIENCE_LEVEL_OPTIONS,
+  PREFERENCE_GROUPS,
   WEEKLY_AVAILABILITY_OPTIONS,
 } from "@/lib/onboarding/constants";
+import type { ChosenForYouEntry } from "@/lib/opportunities/chosen-for-you";
 import { buildChosenForYou } from "@/lib/opportunities/chosen-for-you";
+import { TYPE_LABELS } from "@/lib/opportunities/constants";
 import { buildMatchProfileInput } from "@/lib/opportunities/matching";
 import {
   getOpportunitySourceNames,
@@ -23,6 +33,13 @@ import {
 } from "@/lib/opportunities/query";
 import { getFirstName } from "@/lib/profile/display";
 import { createClient } from "@/lib/supabase/server";
+import type { OpportunityPreferenceKey } from "@/types/database";
+import type { Opportunity } from "@/types/opportunity";
+
+/** Flattened `value → label` lookup built once from the grouped preference options — no separate label map to keep in sync. */
+const PREFERENCE_LABELS: Partial<Record<OpportunityPreferenceKey, string>> = Object.fromEntries(
+  PREFERENCE_GROUPS.flatMap((group) => group.options.map((option) => [option.value, option.label]))
+);
 
 export const metadata: Metadata = {
   title: "Dashboard — Avela",
@@ -54,6 +71,72 @@ function ChipList({ items, emptyLabel }: { items: string[]; emptyLabel: string }
   );
 }
 
+const ACCENT_CHIP_CLASSES = {
+  insight: "border-insight/25 bg-insight/10 text-insight",
+  primary: "border-primary/25 bg-primary/10 text-primary",
+} as const;
+
+/** A `Chip` in one of the dashboard's two personalization accent colors — purple for interests, blue for location/grade — never used for status (MatchBadge/EligibilityBadge/VerificationBadge own that). */
+function AccentChip({
+  variant,
+  children,
+}: {
+  variant: keyof typeof ACCENT_CHIP_CLASSES;
+  children: string;
+}) {
+  return <Chip size="sm" className={ACCENT_CHIP_CLASSES[variant]}>{children}</Chip>;
+}
+
+type Insight = { icon: typeof TrendingUp; label: string; colorClass: string };
+
+/**
+ * Small, honest "at a glance" stats about the matches actually being shown
+ * right now — never a claim about the full catalog, and never invented: a
+ * count is only surfaced when it's greater than zero (a "most common type"
+ * insight only when it genuinely covers more than half of what's shown).
+ */
+function buildInsights(entries: ChosenForYouEntry[]): Insight[] {
+  const insights: Insight[] = [];
+  if (entries.length === 0) return insights;
+
+  const strongCount = entries.filter((entry) => entry.matchResult.tier === "strong_fit").length;
+  if (strongCount > 0) {
+    insights.push({
+      icon: TrendingUp,
+      label: `${strongCount} strong ${strongCount === 1 ? "match" : "matches"}`,
+      colorClass: "border-primary/25 bg-primary/10 text-primary",
+    });
+  }
+
+  const deadlineCount = entries.filter(
+    (entry) => entry.opportunity.deadline_status === "open" && entry.opportunity.application_deadline !== null
+  ).length;
+  if (deadlineCount > 0) {
+    insights.push({
+      icon: CalendarClock,
+      label: `${deadlineCount} ${deadlineCount === 1 ? "deadline needs" : "deadlines need"} attention`,
+      colorClass: "border-gold/40 bg-gold/15 text-gold-foreground",
+    });
+  }
+
+  const typeCounts = new Map<Opportunity["opportunity_type"], number>();
+  for (const entry of entries) {
+    const type = entry.opportunity.opportunity_type;
+    typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+  }
+  const topType = [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (topType && entries.length >= 2 && topType[1] / entries.length > 0.5) {
+    const label = TYPE_LABELS[topType[0]];
+    insights.push({
+      icon: Layers,
+      label: `Most of your matches are ${label.toLowerCase()}s`,
+      colorClass: "border-insight/25 bg-insight/10 text-insight",
+    });
+  }
+
+  return insights;
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -73,6 +156,10 @@ export default async function DashboardPage({
   const experienceLevelLabel = EXPERIENCE_LEVEL_OPTIONS.find(
     (option) => option.value === profile.experience_level
   )?.label;
+  const locationLabel = [profile.city, profile.state].filter(Boolean).join(", ") || null;
+  const preferenceLabels = onboardingSummary.preferences
+    .map((preference) => PREFERENCE_LABELS[preference])
+    .filter((label): label is string => Boolean(label));
 
   const shown = parseShown((await searchParams).shown);
   const supabase = await createClient();
@@ -90,6 +177,10 @@ export default async function DashboardPage({
   ].filter((id): id is string => id !== null);
   const chosenSourceNames = await getOpportunitySourceNames(supabase, chosenSourceIds);
 
+  const insights = buildInsights(
+    chosenForYou.featured ? [chosenForYou.featured, ...chosenForYou.additional] : chosenForYou.additional
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-10 sm:py-12">
       <div className="stagger-children">
@@ -100,73 +191,51 @@ export default async function DashboardPage({
           Welcome back, {firstName}.
         </h1>
         <p className="animate-fade-up mt-3 max-w-lg text-base leading-relaxed text-text-secondary">
-          Here&apos;s your foundation, your path, and what&apos;s coming next.
+          Your personal opportunity advisor prepared today&apos;s matches from your profile below.
         </p>
       </div>
 
-      <section aria-labelledby="foundation-heading" className="animate-fade-up mt-10">
+      <section aria-labelledby="foundation-heading" className="animate-fade-up mt-8">
         <h2
           id="foundation-heading"
           className="text-xs font-medium tracking-wide text-primary uppercase"
         >
-          Your foundation
+          Your profile
         </h2>
 
-        <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-md border border-border bg-card px-5 py-4">
-            <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Grade level
-            </dt>
-            <dd className="mt-1 text-base text-foreground">
-              {profile.grade_level ? `Grade ${profile.grade_level}` : "Not set"}
-            </dd>
+        <div className="mt-3 rounded-xl border border-border bg-card px-5 py-4">
+          <p className="text-sm text-foreground">
+            {profile.grade_level ? `Grade ${profile.grade_level}` : "Grade not set"}
+            {" · "}
+            {weeklyAvailabilityLabel ?? "Availability not set"}
+            {" · "}
+            {experienceLevelLabel ?? "Experience not set"}
+            {profile.guided_mode && " · Guided Mode on"}
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {locationLabel && <AccentChip variant="primary">{locationLabel}</AccentChip>}
+            {interestChips.map((interest) => (
+              <AccentChip key={interest} variant="insight">
+                {interest}
+              </AccentChip>
+            ))}
+            {preferenceLabels.map((label) => (
+              <Chip key={label} size="sm">
+                {label}
+              </Chip>
+            ))}
           </div>
 
-          <div className="rounded-md border border-border bg-card px-5 py-4">
-            <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Guided Mode
-            </dt>
-            <dd className="mt-1 text-base text-foreground">
-              {profile.guided_mode ? "On" : "Off"}
-            </dd>
-          </div>
-
-          <div className="rounded-md border border-border bg-card px-5 py-4">
-            <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Weekly availability
-            </dt>
-            <dd className="mt-1 text-base text-foreground">
-              {weeklyAvailabilityLabel ?? "Not set"}
-            </dd>
-          </div>
-
-          <div className="rounded-md border border-border bg-card px-5 py-4">
-            <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Experience level
-            </dt>
-            <dd className="mt-1 text-base text-foreground">
-              {experienceLevelLabel ?? "Not set"}
-            </dd>
-          </div>
-
-          <div className="rounded-md border border-border bg-card px-5 py-4 sm:col-span-2">
-            <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Interests
-            </dt>
-            <dd className="mt-2">
-              <ChipList items={interestChips} emptyLabel="Not set" />
-            </dd>
-          </div>
-
-          <div className="rounded-md border border-border bg-card px-5 py-4 sm:col-span-2">
-            <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Current goals
-            </dt>
-            <dd className="mt-2">
-              <ChipList items={goals} emptyLabel="Not set" />
-            </dd>
-          </div>
-        </dl>
+          {goals.length > 0 && (
+            <div className="mt-3 border-t border-border pt-3">
+              <p className="text-xs font-medium text-muted-foreground">Current goals</p>
+              <div className="mt-1.5">
+                <ChipList items={goals} emptyLabel="Not set" />
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       <section
@@ -223,6 +292,7 @@ export default async function DashboardPage({
                       isSaved={savedIds.has(entry.opportunity.id)}
                       matchResult={entry.matchResult}
                       eligibilityResult={entry.eligibilityResult}
+                      showWhyItFits
                       sourceName={
                         entry.opportunity.source_id
                           ? (chosenSourceNames.get(entry.opportunity.source_id) ?? null)
@@ -233,14 +303,28 @@ export default async function DashboardPage({
                 </div>
               )}
 
+              {insights.length > 0 && (
+                <ul className="flex flex-wrap gap-2" aria-label="Insights about your matches">
+                  {insights.map((insight) => (
+                    <li
+                      key={insight.label}
+                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${insight.colorClass}`}
+                    >
+                      <insight.icon aria-hidden="true" className="size-3.5" />
+                      {insight.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
               {chosenForYou.status === "exhausted" && (
-                <p role="status" className="text-sm text-muted-foreground">
+                <p role="status" className="rounded-xl border border-dashed border-border bg-secondary px-5 py-4 text-sm text-muted-foreground">
                   That&apos;s everything I&apos;ve verified for your profile so far.
                 </p>
               )}
 
               {chosenForYou.status === "only_broader_remaining" && chosenForYou.nextShown !== null && (
-                <div className="flex flex-col items-start gap-3">
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-border bg-secondary px-5 py-4">
                   <p role="status" className="text-sm text-muted-foreground">
                     I found a few more, but they are not as closely matched to your interests and
                     preferences.
@@ -250,7 +334,8 @@ export default async function DashboardPage({
               )}
 
               {chosenForYou.status === "has_more" && chosenForYou.nextShown !== null && (
-                <div>
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-primary/20 bg-[color-mix(in_oklch,var(--primary),transparent_95%)] px-5 py-4">
+                  <p className="text-sm text-foreground">Want to see a few more matches?</p>
                   <FindMoreButton nextShown={chosenForYou.nextShown} />
                 </div>
               )}
