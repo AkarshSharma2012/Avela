@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { siteConfig } from "@/config/site";
 import { createClient } from "@/lib/supabase/server";
 import { loginSchema, signupSchema, mapAuthError } from "@/lib/validation/auth";
 
@@ -55,6 +56,9 @@ export async function signup(
   const { data, error } = await supabase.auth.signUp({
     email: validated.data.email,
     password: validated.data.password,
+    options: {
+      emailRedirectTo: `${siteConfig.url}/auth/confirm`,
+    },
   });
 
   if (error) {
@@ -63,15 +67,17 @@ export async function signup(
 
   // With email confirmation enabled, Supabase returns a user but no session
   // until the confirmation link is clicked — do not assume a session exists.
-  if (data.user && !data.session) {
-    return {
-      success: true,
-      message:
-        "Check your email to confirm your account, then log in to continue.",
-    };
+  // With confirmation disabled (or auto-confirmed), a session comes back
+  // immediately and the user is already logged in.
+  if (data.session) {
+    redirect("/onboarding");
   }
 
-  redirect("/");
+  return {
+    success: true,
+    message:
+      "Check your email to confirm your account, then log in to continue.",
+  };
 }
 
 export async function logout() {
