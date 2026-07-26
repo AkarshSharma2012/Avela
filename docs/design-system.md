@@ -74,3 +74,50 @@ required tokens.
 `<label>` wrappers styled with the tokens above (matching the existing
 `cn()`/`cva` conventions from `button.tsx`), not Base UI's `Field`
 primitive — see `decision-log.md` for why.
+
+---
+
+# Design system — Milestone 2 additions
+
+## New primitives: `checkbox.tsx`, `radio-group.tsx`, `switch.tsx`
+
+Unlike `Input`/`Label`, these three wrap Base UI's `Checkbox`, `Radio` +
+`RadioGroup`, and `Switch` primitives (the same library `Button` already
+uses) rather than plain native elements — checkboxes, radios, and switches
+need real keyboard and ARIA behavior (arrow-key navigation within a radio
+group, `aria-checked`, mixed/indeterminate states) that a styled native
+`<input type="checkbox">` gets close to but a plain-div reimplementation
+would not, and Base UI ships that behavior for free. All three are styled
+with the same tokens as everything else (`--primary` for the checked/active
+state, `--ring` for focus, `--radius` scale) — no new colors were
+introduced.
+
+- `Checkbox` — a square with a `Check` (lucide) glyph shown via
+  `Checkbox.Indicator` when checked.
+- `RadioGroup` / `RadioGroupItem` — each `RadioGroupItem` renders as a full
+  selectable pill (border + background change on `data-checked`), not a
+  small circle with separate label text, so grade level, weekly
+  availability, and experience level read as segmented controls rather than
+  a traditional radio list.
+- `Switch` — a track-and-thumb toggle for Guided Mode, sized so the thumb
+  is a plain circle sliding between two fixed positions (no color outside
+  the existing `--primary`/`--muted` tokens).
+
+## Option rows: `components/onboarding/option-checkbox.tsx`
+
+Interests, goals, and opportunity preferences all use the same pattern: a
+full-width `<label>` wrapping a `Checkbox` and its text, so the entire row
+is the click/tap target, not just the small checkbox square — important on
+mobile, and generally friendlier for a "select several from a longish list"
+interaction. Selected state is shown with a subtle tinted background
+(`color-mix` against `--primary` at 92% transparency) plus a colored border,
+not a heavier "card" treatment, per the "no excessive cards" constraint.
+
+## Onboarding layout
+
+The wizard reuses the same page shell conventions as the rest of the app
+(`max-w-2xl`, warm background, serif `h2` step headings, `border-t` footer
+for actions) rather than introducing a new "wizard" visual language.
+`ProgressIndicator` is a thin bar plus "Step N of 6" / step-name text —
+functionally identical to the placeholder progress bar Milestone 1 already
+shipped on `/onboarding`, now actually wired to real progress.

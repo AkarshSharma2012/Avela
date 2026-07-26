@@ -48,7 +48,12 @@ export const getCurrentProfile = cache(async (): Promise<Profile | null> => {
     city: null,
     state: null,
     country: "United States",
+    weekly_availability: null,
+    experience_level: null,
+    guided_mode: false,
+    onboarding_version: 1,
     onboarding_completed: false,
+    onboarding_completed_at: null,
     created_at: fallbackTimestamp,
     updated_at: fallbackTimestamp,
   };

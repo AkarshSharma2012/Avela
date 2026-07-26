@@ -119,3 +119,94 @@ browser — see `testing.md`), then restored the original placeholder
 values before finishing. **Signup/login against a real Supabase project
 has not been exercised** — see `testing.md` for exactly what was and
 wasn't verified, and what to check once real credentials are in place.
+
+---
+
+# Decision Log — Milestone 2
+
+## `complete_onboarding()` as one Postgres function, not four client calls
+
+The spec asked for "safe transactional or server-side onboarding completion
+logic so partial failure does not mark onboarding complete incorrectly."
+Four separate client-side calls (update profile, replace interests, replace
+goals, replace preferences) would have a window where some succeeded and
+others didn't — e.g. the profile flips to `onboarding_completed = true` but
+a network blip drops the goals insert. A single `plpgsql` function runs
+inside one transaction implicitly; any exception inside it rolls back
+everything, including the `profiles` update. See `database.md` for the
+function itself.
+
+## `security invoker`, not `security definer`, for `complete_onboarding()`
+
+Milestone 1's `handle_new_user()` needed `security definer` because it runs
+in a trigger context with no `auth.uid()`. `complete_onboarding()` is
+different: it's called directly by an already-authenticated student, so
+`auth.uid()` is available and RLS should keep applying normally.
+`security invoker` means the function's only special power is atomicity,
+not elevated access — a smaller trust footprint than `security definer`
+would have needed for no added benefit here.
+
+## Join tables are fully replaced, not diffed, on every save
+
+`student_interests`/`goals`/`opportunity_preferences` are deleted for the
+student and re-inserted from the submitted selection on every
+`complete_onboarding()` call, rather than computing an add/remove diff.
+Onboarding in this milestone is submitted once, as one complete unit — there
+is no "edit just my interests" entry point yet — so a diff would be
+speculative complexity for a case that can't currently happen. Revisit if a
+later milestone adds standalone editing of one section post-onboarding.
+
+## Draft persistence: `localStorage`, not per-step database writes
+
+Two ways to make the wizard "refresh-safe": persist each step to the
+database as the student completes it (needing draft columns/tables separate
+from the final ones), or keep all state client-side in one object persisted
+to `localStorage`. Chose `localStorage`: no schema for half-finished data,
+no server round trip between steps, and the final save is one atomic write
+instead of N incremental ones that would need reconciling with the final
+submission anyway. The tradeoff — a draft is lost if the student switches
+browsers/devices mid-onboarding — was judged acceptable for a first
+onboarding flow with no cross-device requirement in the spec.
+
+## `submitOnboarding` returns `{ success: true }` instead of calling `redirect()`
+
+Milestone 1's `login`/`logout` actions call `redirect()` directly, which
+throws and unmounts the calling component immediately. Onboarding's final
+action needed one more client-side step first — clearing the `localStorage`
+draft — which can't happen after the component has already unmounted from a
+thrown redirect. So `submitOnboarding` returns a plain `{ success: true }`
+state instead, and `OnboardingWizard` clears the draft and calls
+`router.replace("/dashboard")` itself once it observes that state. Net
+effect on the user is identical; the sequencing is different for this one
+reason.
+
+## `Relationships: []` added to every hand-written table type
+
+Discovered while wiring `getOnboardingSummary`'s `.select("interest,
+other_text")`: `@supabase/postgrest-js`'s `GenericTable` type requires a
+`Relationships` field, and without it, column-specific selects (not `*`)
+silently type as `never`. Added `Relationships: []` to every table in
+`src/types/database.ts`, including the Milestone 1 `profiles` table (which
+had never hit this because its only usage is `.select("*")`). Matches what
+`supabase gen types` would have generated for tables with no foreign-key
+relationships.
+
+## Grade level and weekly-availability/experience-level rendered as pill radio groups
+
+Rather than a native `<select>` dropdown. Seven grade options and
+four-to-six option groups are short enough to show all at once as a
+segmented control (Base UI's `Radio`/`RadioGroup`), which is fewer clicks
+than opening a dropdown and reads more like the "clean form sections"
+direction than a native select box would.
+
+## Did not visually verify the full wizard end-to-end in a browser
+
+`.env.local` in this environment now has real Supabase credentials (unlike
+Milestone 1). Signup against that project was verified, but the project has
+email confirmation enabled, and this session has no way to open the
+confirmation email that was sent to complete login. Per the user's explicit
+choice when asked, live browser testing was stopped at that point rather
+than continuing partway. The Milestone 2 migration was also deliberately
+**not** applied to that project, per instruction, so the final save
+couldn't have been exercised even with a confirmed login. See `testing.md`
+for the full manual-verification checklist still outstanding.

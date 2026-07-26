@@ -128,3 +128,83 @@ email"). This code handles both:
 I have not sent or received a real confirmation email — this is
 implemented per Supabase's documented `signUp()` response shape, not
 verified against a live send.
+
+---
+
+# Testing — Milestone 2 additions
+
+## Automated
+
+`tests/onboarding/schema.test.ts` (28 tests) — every step schema
+(`step1Schema`...`step5Schema`) and the combined `onboardingSchema`:
+required fields, grade level bounds (accepts all of 6–12, rejects 13),
+city/state required only for United States (case-insensitive check),
+interest/goal "must be from the known list" rules, "Not sure yet" alone
+being valid, "Other" requiring explanatory text, opportunity preferences
+having no minimum, and that the final combined schema re-checks the
+cross-field rules (US location, Other-interest) independently of the
+per-step schemas.
+
+`tests/onboarding/storage.test.ts` (6 tests) — `loadDraft`/`saveDraft`/
+`clearDraft` against an in-memory `localStorage` stand-in (`vi.stubGlobal`):
+round-tripping a draft, surviving a simulated "refresh" (a fresh `loadDraft`
+call), clearing, discarding corrupt JSON instead of throwing, and behaving
+as a safe no-op when `window` doesn't exist (the SSR case).
+
+`tests/onboarding/complete.test.ts` (7 tests) — `buildRpcArgs` (correct
+field mapping, `other_text` nulled unless "Other" was selected, city/state
+nulled when blank) and `completeOnboarding`'s completion-only-after-success
+contract: invalid input never calls the injected `save` function; valid
+input calls it with exactly the expected args and reports success only when
+`save` reports no error; a `save` failure is reported as failure, not
+success. `save` is dependency-injected specifically so this is testable
+without a real Supabase client — the same reason Milestone 1 kept
+`route-rules.ts` and `validation/auth.ts` dependency-free.
+
+Redirect logic for onboarding (`incomplete → /onboarding`,
+`complete → /dashboard`, `completed user hitting /onboarding → /dashboard`)
+is unchanged from Milestone 1 and already covered by
+`tests/auth/route-rules.test.ts` — no new routing decision was introduced,
+so no new redirect tests were added.
+
+## Manually verified in this session
+
+Using a Chrome tab driven via browser automation, against the **real**
+Supabase project configured in `.env.local` (unlike Milestone 1, this
+project has real credentials, not placeholders):
+
+- [x] `/signup` renders correctly and is unaffected by this milestone's
+      changes.
+- [x] Signing up with a syntactically-invalid-for-Supabase email
+      (`@example.com`) surfaces the generic "Something went wrong" message
+      via `mapAuthError`'s fallback branch, rather than crashing — confirms
+      error handling still works end-to-end against a live project.
+- [x] Signing up with a real, deliverable email address succeeds and shows
+      the "check your email to confirm" message — this project has email
+      confirmation enabled.
+
+**Not verified — blocked on completing email confirmation in this
+session** (the confirmation link goes to a real inbox this environment
+cannot open):
+
+- [ ] Logging in after confirming and landing on `/onboarding`.
+- [ ] Clicking through all 6 onboarding steps: per-step validation
+      messages, Back/Continue preserving entered data, the interests
+      "Show all options" progressive disclosure, the review step's Edit
+      links jumping back to the right step.
+- [ ] Refresh-safe persistence: filling in a few steps, refreshing the
+      browser, and confirming the draft (including which step you were on)
+      reloads correctly.
+- [ ] The final "Complete onboarding" save — this additionally requires
+      applying `supabase/migrations/20260725010000_onboarding_expansion.sql`
+      to the project first (not done — see `database.md`), since
+      `complete_onboarding()` doesn't exist until that migration runs.
+- [ ] The updated `/dashboard` rendering real interests/goals/Guided Mode
+      status after a real completion.
+- [ ] Mobile viewport rendering and keyboard-only navigation through the
+      wizard (same device-emulation limitation noted in Milestone 1's
+      section above applies here too).
+
+Before relying on this milestone: apply the Milestone 2 migration (see
+`database.md`), confirm a real test account's email, log in, and walk the
+checklist above end-to-end.
