@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { PAGE_SIZE } from "@/lib/opportunities/constants";
+import { MATCHING_POOL_LIMIT, PAGE_SIZE } from "@/lib/opportunities/constants";
 import type { OpportunityFilters } from "@/lib/opportunities/search-params";
 import { sortByRelevance, type RelevanceRankable } from "@/lib/opportunities/search-ranking";
 import type { Database } from "@/types/database";
@@ -193,6 +193,62 @@ export async function listOpportunities(
   }
 
   return { data: data ?? [], count: count ?? 0, error: null };
+}
+
+/**
+ * The full active, real (non-sample) opportunity pool a student's profile
+ * can be matched against — no free-text search, type/format/cost filters,
+ * or pagination, since "Chosen for You" (chosen-for-you.ts) ranks and
+ * slices this pool itself rather than paging through a student-chosen
+ * filter the way the Opportunities browse page does. Applies the same
+ * default visibility exclusions `listOpportunities` applies (expired,
+ * closed applications, rejected/stale verification, grade-ineligible,
+ * confirmed residency mismatch, unresolved citizenship) so nothing
+ * "Chosen for You" surfaces is a listing the browse page would hide by
+ * default, plus an explicit `is_sample = false` no other caller needs.
+ */
+export async function listOpportunitiesForMatching(
+  supabase: Client,
+  gradeLevel: number | null,
+  options: { studentState?: string | null; now?: Date } = {}
+): Promise<{ data: Opportunity[]; error: string | null }> {
+  const now = options.now ?? new Date();
+  const studentState = options.studentState ?? null;
+
+  let query = supabase
+    .from("opportunities")
+    .select("*")
+    .eq("is_active", true)
+    .eq("is_sample", false);
+
+  if (gradeLevel !== null) {
+    query = query
+      .or(`min_grade.is.null,min_grade.lte.${gradeLevel}`)
+      .or(`max_grade.is.null,max_grade.gte.${gradeLevel}`);
+  }
+
+  const nowIso = now.toISOString();
+  query = query.or(`application_deadline.is.null,application_deadline.gte.${nowIso}`);
+  query = query.or("deadline_status.neq.closed");
+  query = query.or("application_status.neq.closed");
+  query = query.or("verification_status.neq.rejected");
+  query = query.or("verification_status.neq.stale");
+
+  if (studentState) {
+    const pattern = sanitizeSearchTerm(studentState);
+    query = query.or(`residency_requirements.is.null,residency_requirements.ilike."%${pattern}%"`);
+  }
+
+  query = query.or(`citizenship_requirements.is.null,citizenship_requirements.ilike."%none%"`);
+
+  const { data, error } = await query.order("id", { ascending: true }).limit(MATCHING_POOL_LIMIT);
+
+  if (error) {
+    console.error("[opportunities] failed to load matching pool:", error.message);
+    return { data: [], error: "Something went wrong loading your matches." };
+  }
+
+  return { data: data ?? [], error: null };
 }
 
 export async function getOpportunityById(

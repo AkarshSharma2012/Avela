@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getSavedOpportunities, listOpportunities } from "@/lib/opportunities/query";
+import {
+  getSavedOpportunities,
+  listOpportunities,
+  listOpportunitiesForMatching,
+} from "@/lib/opportunities/query";
 import { EMPTY_FILTERS } from "@/lib/opportunities/search-params";
 import type { Opportunity } from "@/types/opportunity";
 
@@ -274,6 +278,66 @@ describe("listOpportunities", () => {
     }) as any;
 
     const result = await listOpportunities(supabase, EMPTY_FILTERS, null, { now: NOW });
+
+    expect(result.data).toEqual([]);
+    expect(result.error).not.toBeNull();
+    expect(result.error).not.toMatch(/db down/);
+  });
+});
+
+describe("listOpportunitiesForMatching", () => {
+  it("scopes to active, non-sample opportunities", async () => {
+    const { supabase, calls } = createFakeSupabase({ data: [], count: 0, error: null });
+
+    await listOpportunitiesForMatching(supabase, null, { now: NOW });
+
+    expect(callsOf(calls, "eq")).toContainEqual(["eq", "is_active", true]);
+    expect(callsOf(calls, "eq")).toContainEqual(["eq", "is_sample", false]);
+  });
+
+  it("excludes passed deadlines, closed applications, and rejected/stale verification", async () => {
+    const { supabase, calls } = createFakeSupabase({ data: [], count: 0, error: null });
+
+    await listOpportunitiesForMatching(supabase, null, { now: NOW });
+
+    expect(callsOf(calls, "or")).toContainEqual([
+      "or",
+      `application_deadline.is.null,application_deadline.gte.${NOW.toISOString()}`,
+    ]);
+    expect(callsOf(calls, "or")).toContainEqual(["or", "deadline_status.neq.closed"]);
+    expect(callsOf(calls, "or")).toContainEqual(["or", "application_status.neq.closed"]);
+    expect(callsOf(calls, "or")).toContainEqual(["or", "verification_status.neq.rejected"]);
+    expect(callsOf(calls, "or")).toContainEqual(["or", "verification_status.neq.stale"]);
+  });
+
+  it("applies the grade filter only when the student's grade is known", async () => {
+    const { supabase, calls } = createFakeSupabase({ data: [], count: 0, error: null });
+
+    await listOpportunitiesForMatching(supabase, 10, { now: NOW });
+
+    expect(callsOf(calls, "or")).toContainEqual(["or", "min_grade.is.null,min_grade.lte.10"]);
+    expect(callsOf(calls, "or")).toContainEqual(["or", "max_grade.is.null,max_grade.gte.10"]);
+  });
+
+  it("returns a friendly error and no data when the query fails", async () => {
+    const { supabase } = createFakeSupabase({ data: [], count: 0, error: null });
+    supabase.from = () => ({
+      select: () => ({
+        eq: function () {
+          return this;
+        },
+        or: function () {
+          return this;
+        },
+        order: function () {
+          return this;
+        },
+        limit: () => Promise.resolve({ data: null, error: { message: "db down" } }),
+      }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any;
+
+    const result = await listOpportunitiesForMatching(supabase, null, { now: NOW });
 
     expect(result.data).toEqual([]);
     expect(result.error).not.toBeNull();

@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Bookmark, Compass } from "lucide-react";
+import { AlertTriangle, Bookmark, Compass } from "lucide-react";
 
+import { FeaturedMatchCard } from "@/components/opportunities/featured-match-card";
+import { FindMoreButton } from "@/components/opportunities/find-more-button";
+import { OpportunityCard } from "@/components/opportunities/opportunity-card";
 import { Chip } from "@/components/ui/chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NodeTrack, type TrackNode } from "@/components/ui/node-track";
@@ -11,7 +14,15 @@ import {
   EXPERIENCE_LEVEL_OPTIONS,
   WEEKLY_AVAILABILITY_OPTIONS,
 } from "@/lib/onboarding/constants";
+import { buildChosenForYou } from "@/lib/opportunities/chosen-for-you";
+import { buildMatchProfileInput } from "@/lib/opportunities/matching";
+import {
+  getOpportunitySourceNames,
+  getSavedOpportunityIds,
+  listOpportunitiesForMatching,
+} from "@/lib/opportunities/query";
 import { getFirstName } from "@/lib/profile/display";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "Dashboard — Avela",
@@ -20,8 +31,15 @@ export const metadata: Metadata = {
 const JOURNEY: TrackNode[] = [
   { key: "profile", label: "Profile complete", state: "done" },
   { key: "personalization", label: "Personalization ready", state: "done" },
-  { key: "opportunities", label: "Opportunities coming next", state: "upcoming" },
+  { key: "opportunities", label: "Matches ready", state: "done" },
 ];
+
+/** Malformed/negative/missing `?shown=` degrades to the first page rather than throwing — same "bad URL never 500s" rule `parseOpportunityFilters` follows. */
+function parseShown(raw: string | string[] | undefined): number {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
 
 function ChipList({ items, emptyLabel }: { items: string[]; emptyLabel: string }) {
   if (items.length === 0) {
@@ -36,10 +54,15 @@ function ChipList({ items, emptyLabel }: { items: string[]; emptyLabel: string }
   );
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const profile = await requireProfile();
   const firstName = getFirstName(profile);
-  const { interests, otherInterestText, goals } = await getOnboardingSummary(profile.id);
+  const onboardingSummary = await getOnboardingSummary(profile.id);
+  const { interests, otherInterestText, goals } = onboardingSummary;
 
   const interestChips = interests.map((interest) =>
     interest === "Other" && otherInterestText ? `Other (${otherInterestText})` : interest
@@ -50,6 +73,22 @@ export default async function DashboardPage() {
   const experienceLevelLabel = EXPERIENCE_LEVEL_OPTIONS.find(
     (option) => option.value === profile.experience_level
   )?.label;
+
+  const shown = parseShown((await searchParams).shown);
+  const supabase = await createClient();
+  const [{ data: candidatePool, error: poolError }, savedIds] = await Promise.all([
+    listOpportunitiesForMatching(supabase, profile.grade_level, { studentState: profile.state }),
+    getSavedOpportunityIds(supabase, profile.id),
+  ]);
+
+  const matchProfileInput = buildMatchProfileInput(profile, onboardingSummary);
+  const chosenForYou = buildChosenForYou(candidatePool, matchProfileInput, shown);
+
+  const chosenSourceIds = [
+    ...(chosenForYou.featured ? [chosenForYou.featured.opportunity.source_id] : []),
+    ...chosenForYou.additional.map((entry) => entry.opportunity.source_id),
+  ].filter((id): id is string => id !== null);
+  const chosenSourceNames = await getOpportunitySourceNames(supabase, chosenSourceIds);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-10 sm:py-12">
@@ -151,15 +190,72 @@ export default async function DashboardPage() {
           id="discovery-heading"
           className="text-xs font-medium tracking-wide text-primary uppercase"
         >
-          Opportunity discovery
+          Chosen for you
         </h2>
-        <div className="mt-4">
-          <EmptyState
-            icon={Compass}
-            title="Your opportunities will appear here once discovery is enabled."
-            description="Your profile is ready for matching."
-            action={{ label: "Preview the Opportunities page", href: "/opportunities" }}
-          />
+
+        <div className="mt-4 flex flex-col gap-4">
+          {poolError ? (
+            <EmptyState icon={AlertTriangle} title="Couldn't load your matches." description={poolError} />
+          ) : chosenForYou.status === "empty" ? (
+            <EmptyState
+              icon={Compass}
+              title="We haven't verified any opportunities matching your profile yet."
+              description="Check back soon as more are verified, or browse everything we have so far."
+              action={{ label: "Browse Opportunities", href: "/opportunities" }}
+            />
+          ) : (
+            <>
+              {chosenForYou.featured && (
+                <FeaturedMatchCard
+                  opportunity={chosenForYou.featured.opportunity}
+                  matchResult={chosenForYou.featured.matchResult}
+                  eligibilityResult={chosenForYou.featured.eligibilityResult}
+                  isSaved={savedIds.has(chosenForYou.featured.opportunity.id)}
+                />
+              )}
+
+              {chosenForYou.additional.length > 0 && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {chosenForYou.additional.map((entry) => (
+                    <OpportunityCard
+                      key={entry.opportunity.id}
+                      opportunity={entry.opportunity}
+                      isSaved={savedIds.has(entry.opportunity.id)}
+                      matchResult={entry.matchResult}
+                      eligibilityResult={entry.eligibilityResult}
+                      sourceName={
+                        entry.opportunity.source_id
+                          ? (chosenSourceNames.get(entry.opportunity.source_id) ?? null)
+                          : null
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+
+              {chosenForYou.status === "exhausted" && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  That&apos;s everything I&apos;ve verified for your profile so far.
+                </p>
+              )}
+
+              {chosenForYou.status === "only_broader_remaining" && chosenForYou.nextShown !== null && (
+                <div className="flex flex-col items-start gap-3">
+                  <p role="status" className="text-sm text-muted-foreground">
+                    I found a few more, but they are not as closely matched to your interests and
+                    preferences.
+                  </p>
+                  <FindMoreButton nextShown={chosenForYou.nextShown} />
+                </div>
+              )}
+
+              {chosenForYou.status === "has_more" && chosenForYou.nextShown !== null && (
+                <div>
+                  <FindMoreButton nextShown={chosenForYou.nextShown} />
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
 
@@ -181,11 +277,11 @@ export default async function DashboardPage() {
       </section>
 
       <p className="animate-fade-up mt-8 text-sm text-muted-foreground">
-        Next step: check{" "}
+        Want to look around yourself instead? Browse the full{" "}
         <Link href="/opportunities" className="text-primary underline-offset-4 hover:underline">
           Opportunities
         </Link>{" "}
-        again once discovery is enabled — your profile is already set up for matching.
+        list.
       </p>
     </div>
   );

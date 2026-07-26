@@ -58,6 +58,9 @@ export const DEADLINE_WINDOW_VALUES: readonly DeadlineWindow[] = DEADLINE_WINDOW
 
 export const PAGE_SIZE = 12;
 
+/** Safety cap on the pool "Chosen for You" (chosen-for-you.ts) ranks in JS — same rationale as SEARCH_RERANK_LIMIT in query.ts: this catalog is small by design, but the cap keeps that assumption from silently breaking if it grows. */
+export const MATCHING_POOL_LIMIT = 200;
+
 export const TYPE_LABELS: Record<OpportunityType, string> = Object.fromEntries(
   OPPORTUNITY_TYPES.map((option) => [option.value, option.label])
 ) as Record<OpportunityType, string>;
