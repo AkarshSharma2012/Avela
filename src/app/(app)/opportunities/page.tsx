@@ -35,9 +35,12 @@ export default async function OpportunitiesPage({
   const filters = parseOpportunityFilters(await searchParams);
 
   const supabase = await createClient();
-  const [{ data: opportunities, count, error }, onboardingSummary, savedIds] = await Promise.all([
-    listOpportunities(supabase, filters, profile.grade_level, { studentState: profile.state }),
-    getOnboardingSummary(profile.id),
+  const onboardingSummary = await getOnboardingSummary(profile.id);
+  const [{ data: opportunities, count, error }, savedIds] = await Promise.all([
+    listOpportunities(supabase, filters, profile.grade_level, {
+      studentState: profile.state,
+      studentInterestTags: onboardingSummary.interests,
+    }),
     getSavedOpportunityIds(supabase, profile.id),
   ]);
 

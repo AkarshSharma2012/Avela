@@ -1,17 +1,20 @@
 import type { RawOpportunityRecordInput } from "@/lib/opportunities/adapters/types";
+import type { ExtractedField } from "@/lib/opportunities/extraction";
 import type {
   OpportunityApplicationStatus,
   OpportunityCostType,
   OpportunityDeadlineStatus,
   OpportunityEligibilityDataStatus,
+  OpportunityExtendedDetails,
   OpportunityFormat,
   OpportunityReviewQueueReason,
   OpportunitySourceTrustLevel,
   OpportunityType,
+  OpportunityVerificationLabel,
   OpportunityVerificationStatus,
 } from "@/types/database";
 
-/** A slice of an existing `opportunities` row plus its primary source's trust level — everything `ingestion-runner.ts` needs to run `dedupe.ts` against it and decide how to merge. */
+/** A slice of an existing `opportunities` row plus its primary source's trust level — everything `ingestion-runner.ts` needs to run `dedupe.ts`/`conflicts.ts` against it and decide how to merge. */
 export type DedupeCandidateRow = {
   id: string;
   title: string;
@@ -20,6 +23,8 @@ export type DedupeCandidateRow = {
   applicationUrl: string;
   sourceUrl: string | null;
   applicationDeadline: string | null;
+  minGrade: number | null;
+  maxGrade: number | null;
   primarySourceId: string | null;
   primarySourceTrustLevel: OpportunitySourceTrustLevel | null;
   sourceLinkCount: number;
@@ -48,9 +53,43 @@ export type NewOpportunityFields = {
   last_verified_at: string;
   next_verification_at: string;
   is_verified: boolean;
+  residency_requirements: string | null;
+  citizenship_requirements: string | null;
+  // Milestone 7 — verification label, status intelligence, conflicts, and deep detail
+  verification_label: OpportunityVerificationLabel;
+  has_unresolved_conflict: boolean;
+  application_opens_at: string | null;
+  application_closes_at: string | null;
+  status_evidence: string | null;
+  status_checked_at: string | null;
+  age_min: number | null;
+  age_max: number | null;
+  school_enrollment_required: boolean | null;
+  stipend_amount: number | null;
+  hourly_pay: number | null;
+  financial_aid_available: boolean | null;
+  transportation_support: boolean | null;
+  housing_support: boolean | null;
+  essay_required: boolean | null;
+  recommendation_required: boolean | null;
+  transcript_required: boolean | null;
+  interview_required: boolean | null;
+  parent_consent_required: boolean | null;
+  schedule_text: string | null;
+  attendance_requirements: string | null;
+  application_contact: string | null;
+  notification_date: string | null;
+  extended_details: OpportunityExtendedDetails;
 };
 
 export type OpportunityPatch = Partial<NewOpportunityFields>;
+
+/** One `opportunity_field_evidence` row to persist — see supabase/migrations/20260728000000_opportunity_evidence_and_verification.sql. */
+export type FieldEvidenceDraft = {
+  fieldName: string;
+  entry: ExtractedField<unknown>;
+  sourceUrl: string | null;
+};
 
 /**
  * Everything `runIngestion` needs to persist its work, expressed as an
@@ -97,4 +136,6 @@ export interface IngestionRepository {
   insertReviewQueueEntries(
     entries: { opportunityId: string; reason: OpportunityReviewQueueReason }[]
   ): Promise<void>;
+  /** Persists the structured evidence trail (section 4) backing every deep-extraction field an ingestion pass found — never called with an empty array's worth of fabricated entries, only real extractor output. */
+  insertFieldEvidence(opportunityId: string, evidence: FieldEvidenceDraft[]): Promise<void>;
 }

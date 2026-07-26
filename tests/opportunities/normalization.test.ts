@@ -147,6 +147,10 @@ describe("normalizeResidencyRequirement", () => {
   it("returns null for text with no residency signal", () => {
     expect(normalizeResidencyRequirement("Open to all students").value).toBeNull();
   });
+
+  it("extracts a state name even when 'Residents' is capitalized as a bullet heading (regression: NASA's real eligibility list reads 'Texas Residents')", () => {
+    expect(normalizeResidencyRequirement("U.S. Citizens, Texas Residents").value).toBe("Texas");
+  });
 });
 
 describe("normalizeCitizenshipRequirement", () => {

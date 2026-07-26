@@ -156,3 +156,84 @@ migration already added to `opportunities` (`verification_status`,
 `opportunity_sources`/`opportunity_source_links`/`opportunity_review_queue`
 tables. `supabase/migrations/20260727000000_opportunity_intelligence.sql`
 is unchanged.
+
+---
+
+# Milestone 7 — source expansion
+
+Goal: grow the roster from the two Milestone 6 sources toward a balanced
+10-15-source catalog across federal, state/local, university, nonprofit,
+museum/library, business, civic/debate, arts, STEM, and volunteering
+categories — grades 8-12, official sources only, same vetting bar as
+Milestone 6 (robots.txt checked for a hard block on the specific path, the
+actual page fetched and confirmed to have real, stable, non-thin content
+with explicit grade/deadline/cost text, never a directory summary trusted
+as final truth).
+
+20 candidates spanning every required category were checked this way
+(`robots.txt` fetched, the live page fetched and inspected). **7 new
+sources were accepted**, joining NIST SHIP and NIH SIP for **9 total**:
+
+## Accepted (new this milestone)
+
+| # | Source | Category | Trust | Crawl method | Why accepted |
+|---|---|---|---|---|---|
+| 1 | NASA High School Aerospace Scholars (`nasa.gov/learning-resources/high-school-aerospace-scholars/`) | Federal | high | html_scrape | robots.txt allows; single stable page; explicit grade (11th), deadline window, and free-cost text |
+| 2 | WA State Legislature Senate/House Page Program (`leg.wa.gov/learn-and-participate/civic-education-programs/page-program/`) | State government / civic | high | html_scrape | No robots.txt exists (not a block, same as a from-scratch site); explicit age range ("14, not yet 17"), 2027-cycle deadline ("opens November 1st 2026"), and daily stipend ($65-67/day) |
+| 3 | MIT Introduction to Technology, Engineering, and Science (MITES) (`mites.mit.edu`) | University | high | html_scrape | robots.txt only blocks `/wp-admin/`; explicit grade text ("rising high school seniors" / "7th-12th" across its sub-programs) and free-cost text; no explicit deadline text found (flagged, not fabricated) |
+| 4 | YoungArts (`youngarts.org/apply`) | Arts | high | html_scrape | robots.txt allows; explicit grade/age (grades 10-12, ages 15-18), cycle deadline dates, free-to-apply text |
+| 5 | Regeneron Science Talent Search / Society for Science (`societyforscience.org/regeneron-sts/`) | STEM / competition | high | html_scrape | robots.txt allows; explicit deadline (November 2026) and free-entry text; grade (seniors) inferred from program description rather than a verbatim eligibility sentence — flagged low-confidence on grade, not fabricated |
+| 6 | DoSomething.org campaigns (`dosomething.org/us/campaigns`) | Volunteering | medium | **listing_scrape** | robots.txt allows; a genuine multi-item listing page — 4+ distinct campaigns, each with its own deadline — used as this milestone's multi-record adapter target (see `src/lib/opportunities/adapters/listing-adapter.ts`). **Disabled post-vetting**: a live dry-run found the site's real link structure has since moved to `/program/<slug>` and `/act-and-lead?causes=<uuid>`, not `/us/campaigns/<slug>` — removed from `scripts/ingest-opportunities.ts`'s active `SOURCES` list rather than patched with an unverified guess (see `docs/decision-log.md`'s follow-up entry). The framework and its tests remain valid. |
+| 7 | Elks National Foundation "Most Valuable Student" Scholarship (`elks.org/scholars/scholarships/MVS.cfm`) | Scholarship | high | html_scrape | robots.txt only blocks `/history/*archive/PDF` paths; explicit grade (high school senior), citizenship requirement, 2027-cycle deadline (opens August 1, 2026), and award-amount text |
+
+## Rejected (checked, not integrated) — new this milestone
+
+| Source | Category | Reason |
+|---|---|---|
+| Congressional Award | Civic | Page itself returned 403 despite a permissive robots.txt |
+| National Youth Science Camp | STEM | Domain chain (`nysc.org` → `nysf.com` → `nysacademy.org`) all dead ends |
+| WA Legislative Youth Advisory Council | State civic | Could not locate a current, stable URL in this pass (both guessed paths 404'd) — worth revisiting with a better URL, not permanently excluded |
+| Pacific Science Center teens | Museum / Seattle | The `/teens/` page itself returned 403 |
+| Museum of Flight | Museum / Seattle | `robots.txt` itself returned 403 — same precedent as CDC in Milestone 6 |
+| Woodland Park Zoo ZooCorps | Museum / Seattle | `robots.txt` itself returned 403 |
+| University of Washington Pre-College Programs | University | Could not locate a current, stable URL in this pass — worth revisiting |
+| Stanford Pre-Collegiate Studies | University | `robots.txt`'s `User-agent: *` is technically permissive, but the same file explicitly names and disallows `ClaudeBot`/`anthropic-ai`/`GPTBot`. Respecting the letter of a generic allow rule while an AI-crawler-specific block sits right next to it would be exactly the bad-faith reading "exclude blocked sources" exists to prevent — rejected on that basis, not on markup quality |
+| FBLA | Business | `robots.txt` itself returned 403 |
+| DECA | Business | Homepage/`/hs` load but no explicit grade/deadline/fee text — thin, same bar that excluded National History Day in Milestone 6 |
+| National Speech & Debate Association | Civic / debate | `robots.txt` itself returned 403; homepage also thin |
+| 4-H | Volunteering | `robots.txt` itself returned 403; page itself also 403 |
+| Exploratorium High School Explainer Program | Museum / STEM | `robots.txt` itself returned 403; page itself also 403 |
+| Scholastic Art & Writing Awards | Arts | Homepage loads but is thin (no grade/deadline/fee found on the fetched page) — would need a specific program subpage, not the homepage |
+| Seattle Public Library teen programs | Library | robots.txt clean, but `/programs-and-services/teens` is a thin overview page — no eligibility, deadline, or application-process text |
+| National Park Service youth programs | Federal / volunteering | robots.txt clean, but `/subjects/youthprograms/index.htm` is a thin portal/hub page linking to sub-pages with no program specifics on the page itself |
+| Smithsonian (`naturalhistory.si.edu/education/students`) | Museum | robots.txt clean, but the page itself returned 403 |
+| Junior Achievement USA | Business | robots.txt clean and org confirmed genuine, but programs are delivered per-local-chapter with no single canonical program page — not a stable adapter target |
+| Diamond Challenge | Business / entrepreneurship | robots.txt clean, but the homepage has no deadline/cost text and a guessed rules subpage 404'd — thin, same bar as DECA |
+
+## Net result and honest gap vs. the 10-15 target
+
+**9 total sources** (2 from Milestone 6 + 7 new) is below the spec's 10-15
+target. The shortfall is a real pattern in this vetting pass, not a
+shortcut: **7 of 19 new candidates were blocked at the infrastructure
+level** (a 403 on `robots.txt` itself or on the page itself — FBLA, 4-H,
+Exploratorium, Museum of Flight, Woodland Park Zoo, Pacific Science
+Center, Congressional Award), consistent with nonprofits/museums
+increasingly running bot-protection in front of exactly this kind of
+automated, good-faith fetch. Two more (WA LYAC, UW Pre-College Programs)
+are the right organization with the wrong guessed URL — not excluded on
+merit, worth a follow-up pass with the correct URL. Per Milestone 6's own
+precedent (shipping 2 of an allowed 2-3 sources rather than forcing a
+third against thin markup), shipping 9 well-vetted sources here is judged
+better than padding the count with a directory summary, a thin page, or a
+site that explicitly disallows AI crawlers.
+
+## Multi-record listing adapter
+
+DoSomething.org's campaign listing is the only candidate that was a
+genuine multi-item index page with distinct linked detail content per
+item (MIT's page describes multiple sub-programs but doesn't expose them
+as separately linked detail pages, so it's built as a single-page
+adapter instead). See `src/lib/opportunities/adapters/listing-adapter.ts`
+for the bounded (max pages, max detail records, concurrency-limited,
+one-raw-record-per-real-opportunity) multi-record adapter framework this
+exercises.

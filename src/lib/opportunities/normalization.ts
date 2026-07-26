@@ -280,7 +280,13 @@ export function normalizeLocation(raw: string): NormalizedField<string> {
   return field(cleaned, "high", raw);
 }
 
-const RESIDENCY_PATTERN = /\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s+resident(?:s)?\b/;
+// The "resident(s)" keyword is matched case-insensitively — real official
+// eligibility lists routinely capitalize it as a bullet heading ("Texas
+// Residents"), which the region-name capture group's own `[A-Z]` already
+// requires to look like a proper noun regardless of case-sensitivity
+// elsewhere in the pattern. Confirmed missing live on NASA's actual High
+// School Aerospace Scholars eligibility text before this fix.
+const RESIDENCY_PATTERN = /\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s+[Rr]esident(?:s)?\b/;
 const US_RESIDENCY_PATTERN = /\bu\.?s\.?\s+resident|\bunited states resident/i;
 
 /** Keyword-based residency detection — flagged low confidence, since free text is inherently ambiguous. The raw text is always preserved for a human to confirm (see review-queue.ts's "residency_citizenship_ambiguity" reason). */

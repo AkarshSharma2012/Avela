@@ -108,7 +108,8 @@ export type OpportunitySourceCrawlMethod =
   | "rss_feed"
   | "api"
   | "static_adapter"
-  | "html_scrape";
+  | "html_scrape"
+  | "listing_scrape";
 
 export type OpportunityIngestionRunStatus = "running" | "completed" | "failed";
 
@@ -140,9 +141,50 @@ export type OpportunityReviewQueueReason =
   | "unclear_application_status"
   | "broken_application_url"
   | "stale_source"
-  | "residency_citizenship_ambiguity";
+  | "residency_citizenship_ambiguity"
+  | "new_cycle_unconfirmed";
 
 export type OpportunityReviewQueueStatus = "open" | "resolved" | "dismissed";
+
+// Milestone 7 — source expansion, deep detail extraction, and verification
+
+/**
+ * Seven specific, student-facing verification states (spec section 5) —
+ * replaces a single vague "Unverified" badge for every situation. See
+ * src/lib/opportunities/verification-labels.ts. `verification_status`
+ * (above) is kept unchanged for backward compatibility with
+ * Milestones 4-6 code/tests and is derived from this finer label.
+ */
+export type OpportunityVerificationLabel =
+  | "verified_accepting"
+  | "verified_opening_soon"
+  | "verified_next_cycle"
+  | "partially_verified_deadline_unclear"
+  | "needs_review"
+  | "closed"
+  | "stale";
+
+/** Long-tail deep-extraction fields with no dedicated column — see opportunities.extended_details. Every key optional; a missing key means "not found," never "no." Each value is stored alongside a matching `opportunity_field_evidence` row carrying its confidence/evidence/method. */
+export type OpportunityExtendedDetails = {
+  demographic_restrictions?: string;
+  prerequisites?: string;
+  required_experience?: string;
+  required_documents?: string[];
+  application_steps?: string[];
+  skills?: string[];
+  expected_outcomes?: string;
+  certificate_or_credit?: string;
+  program_benefits?: string;
+};
+
+/** Mirrors extraction.ts's `ExtractionMethod` — duplicated here (not imported) since types/database.ts is hand-written to mirror the schema alone, importing nothing from src/lib. */
+export type OpportunityFieldEvidenceExtractionMethod =
+  | "html_metadata"
+  | "json_ld"
+  | "open_graph"
+  | "structured_api"
+  | "llm_assisted"
+  | "manual";
 
 export type Database = {
   public: {
@@ -311,6 +353,30 @@ export type Database = {
           eligibility_notes: string | null;
           application_cycle: string | null;
           recurrence_pattern: string | null;
+          verification_label: OpportunityVerificationLabel;
+          has_unresolved_conflict: boolean;
+          application_opens_at: string | null;
+          application_closes_at: string | null;
+          status_evidence: string | null;
+          status_checked_at: string | null;
+          age_min: number | null;
+          age_max: number | null;
+          school_enrollment_required: boolean | null;
+          stipend_amount: number | null;
+          hourly_pay: number | null;
+          financial_aid_available: boolean | null;
+          transportation_support: boolean | null;
+          housing_support: boolean | null;
+          essay_required: boolean | null;
+          recommendation_required: boolean | null;
+          transcript_required: boolean | null;
+          interview_required: boolean | null;
+          parent_consent_required: boolean | null;
+          schedule_text: string | null;
+          attendance_requirements: string | null;
+          application_contact: string | null;
+          notification_date: string | null;
+          extended_details: OpportunityExtendedDetails;
           created_at: string;
           updated_at: string;
         };
@@ -357,6 +423,30 @@ export type Database = {
           eligibility_notes?: string | null;
           application_cycle?: string | null;
           recurrence_pattern?: string | null;
+          verification_label?: OpportunityVerificationLabel;
+          has_unresolved_conflict?: boolean;
+          application_opens_at?: string | null;
+          application_closes_at?: string | null;
+          status_evidence?: string | null;
+          status_checked_at?: string | null;
+          age_min?: number | null;
+          age_max?: number | null;
+          school_enrollment_required?: boolean | null;
+          stipend_amount?: number | null;
+          hourly_pay?: number | null;
+          financial_aid_available?: boolean | null;
+          transportation_support?: boolean | null;
+          housing_support?: boolean | null;
+          essay_required?: boolean | null;
+          recommendation_required?: boolean | null;
+          transcript_required?: boolean | null;
+          interview_required?: boolean | null;
+          parent_consent_required?: boolean | null;
+          schedule_text?: string | null;
+          attendance_requirements?: string | null;
+          application_contact?: string | null;
+          notification_date?: string | null;
+          extended_details?: OpportunityExtendedDetails;
           created_at?: string;
           updated_at?: string;
         };
@@ -403,6 +493,30 @@ export type Database = {
           eligibility_notes?: string | null;
           application_cycle?: string | null;
           recurrence_pattern?: string | null;
+          verification_label?: OpportunityVerificationLabel;
+          has_unresolved_conflict?: boolean;
+          application_opens_at?: string | null;
+          application_closes_at?: string | null;
+          status_evidence?: string | null;
+          status_checked_at?: string | null;
+          age_min?: number | null;
+          age_max?: number | null;
+          school_enrollment_required?: boolean | null;
+          stipend_amount?: number | null;
+          hourly_pay?: number | null;
+          financial_aid_available?: boolean | null;
+          transportation_support?: boolean | null;
+          housing_support?: boolean | null;
+          essay_required?: boolean | null;
+          recommendation_required?: boolean | null;
+          transcript_required?: boolean | null;
+          interview_required?: boolean | null;
+          parent_consent_required?: boolean | null;
+          schedule_text?: string | null;
+          attendance_requirements?: string | null;
+          application_contact?: string | null;
+          notification_date?: string | null;
+          extended_details?: OpportunityExtendedDetails;
           created_at?: string;
           updated_at?: string;
         };
@@ -597,6 +711,45 @@ export type Database = {
           status?: OpportunityReviewQueueStatus;
           created_at?: string;
           resolved_at?: string | null;
+        };
+        Relationships: [];
+      };
+      opportunity_field_evidence: {
+        Row: {
+          id: string;
+          opportunity_id: string;
+          field_name: string;
+          extracted_value: unknown;
+          evidence_text: string | null;
+          source_url: string | null;
+          extraction_method: OpportunityFieldEvidenceExtractionMethod;
+          confidence: number;
+          verified_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          opportunity_id: string;
+          field_name: string;
+          extracted_value?: unknown;
+          evidence_text?: string | null;
+          source_url?: string | null;
+          extraction_method: OpportunityFieldEvidenceExtractionMethod;
+          confidence?: number;
+          verified_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          opportunity_id?: string;
+          field_name?: string;
+          extracted_value?: unknown;
+          evidence_text?: string | null;
+          source_url?: string | null;
+          extraction_method?: OpportunityFieldEvidenceExtractionMethod;
+          confidence?: number;
+          verified_at?: string | null;
+          created_at?: string;
         };
         Relationships: [];
       };

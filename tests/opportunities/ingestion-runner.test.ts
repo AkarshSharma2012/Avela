@@ -29,6 +29,7 @@ class FakeRepository implements IngestionRepository {
   opportunities = new Map<string, NewOpportunityFields & { id: string }>();
   sourceLinks = new Map<string, { sourceId: string; sourceUrl: string; isPrimary: boolean }[]>();
   reviewEntries: { opportunityId: string; reason: string }[] = [];
+  fieldEvidence: { opportunityId: string; fieldName: string }[] = [];
   rawRecords: unknown[] = [];
   runs = new Map<string, { status: string }>();
   private nextId = 1;
@@ -72,6 +73,8 @@ class FakeRepository implements IngestionRepository {
           applicationUrl: o.application_url,
           sourceUrl: o.source_url,
           applicationDeadline: o.application_deadline,
+          minGrade: o.min_grade,
+          maxGrade: o.max_grade,
           primarySourceId: primary?.sourceId ?? null,
           primarySourceTrustLevel: primary ? (this.sourceTrustLevels.get(primary.sourceId) ?? null) : null,
           sourceLinkCount: links.length,
@@ -120,6 +123,13 @@ class FakeRepository implements IngestionRepository {
 
   async insertReviewQueueEntries(entries: { opportunityId: string; reason: string }[]): Promise<void> {
     this.reviewEntries.push(...entries);
+  }
+
+  async insertFieldEvidence(
+    opportunityId: string,
+    evidence: { fieldName: string }[]
+  ): Promise<void> {
+    this.fieldEvidence.push(...evidence.map((e) => ({ opportunityId, fieldName: e.fieldName })));
   }
 }
 
@@ -496,5 +506,78 @@ describe("runIngestion — deduplication and idempotency", () => {
     const links = repository.sourceLinks.get(opportunityId) ?? [];
     const primary = links.find((l) => l.isPrimary);
     expect(primary?.sourceId).toBe("source-b");
+  });
+});
+
+describe("runIngestion — residency/citizenship extraction (regression: previously never wired in at all)", () => {
+  it("extracts and stores a residency requirement found in the page text, and queues it for review", async () => {
+    const repository = new FakeRepository({ "source-a": "high" });
+    const record = makeRecord({
+      rawContent:
+        "<html><head><title>Texas Aerospace Scholars</title></head><body><p>Open to high school students. Eligibility: U.S. Citizens, Texas Residents. Applications due March 15, 2027. Free.</p></body></html>",
+    });
+
+    const summary = await runIngestion({
+      source: makeSource(),
+      adapter: fakeAdapter([record]),
+      repository,
+      dryRun: false,
+      now: NOW,
+      fetchImpl: ALWAYS_WORKING_FETCH,
+      dnsLookupImpl: PUBLIC_DNS,
+    });
+
+    expect(summary.itemsCreated).toBe(1);
+    const stored = [...repository.opportunities.values()][0];
+    expect(stored.residency_requirements).toBe("Texas");
+    expect(repository.reviewEntries.some((e) => e.reason === "residency_citizenship_ambiguity")).toBe(true);
+  });
+
+  it("leaves residency/citizenship null (not fabricated) when the page says nothing about either", async () => {
+    const repository = new FakeRepository({ "source-a": "high" });
+    const record = makeRecord({
+      rawContent:
+        "<html><head><title>Open Program</title></head><body><p>Open to high school students. Applications due March 15, 2027. Free.</p></body></html>",
+    });
+
+    const summary = await runIngestion({
+      source: makeSource(),
+      adapter: fakeAdapter([record]),
+      repository,
+      dryRun: false,
+      now: NOW,
+      fetchImpl: ALWAYS_WORKING_FETCH,
+      dnsLookupImpl: PUBLIC_DNS,
+    });
+
+    const stored = [...repository.opportunities.values()][0];
+    expect(stored.residency_requirements).toBeNull();
+    expect(stored.citizenship_requirements).toBeNull();
+    expect(repository.reviewEntries.some((e) => e.reason === "residency_citizenship_ambiguity")).toBe(false);
+    expect(summary.itemsCreated).toBe(1);
+  });
+});
+
+describe("runIngestion — title extraction prefers a real page title over a generic CMS archive label (regression: societyforscience.org/regeneron-sts/)", () => {
+  it("falls through to the <title> tag when og:title is a generic archive/taxonomy label", async () => {
+    const repository = new FakeRepository({ "source-a": "high" });
+    const record = makeRecord({
+      rawContent:
+        '<html><head><title>Regeneron Science Talent Search - Society for Science</title><meta property="og:title" content="Regeneron STS Pages Archive" /></head><body><p>Open to high school students. Applications due March 15, 2027. Free.</p></body></html>',
+    });
+
+    const summary = await runIngestion({
+      source: makeSource(),
+      adapter: fakeAdapter([record]),
+      repository,
+      dryRun: false,
+      now: NOW,
+      fetchImpl: ALWAYS_WORKING_FETCH,
+      dnsLookupImpl: PUBLIC_DNS,
+    });
+
+    expect(summary.itemsCreated).toBe(1);
+    const stored = [...repository.opportunities.values()][0];
+    expect(stored.title).toBe("Regeneron Science Talent Search - Society for Science");
   });
 });

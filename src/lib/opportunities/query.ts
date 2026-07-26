@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { PAGE_SIZE } from "@/lib/opportunities/constants";
 import type { OpportunityFilters } from "@/lib/opportunities/search-params";
+import { sortByRelevance, type RelevanceRankable } from "@/lib/opportunities/search-ranking";
 import type { Database } from "@/types/database";
 import type { Opportunity } from "@/types/opportunity";
 
@@ -41,11 +42,25 @@ export type ListOpportunitiesResult = {
  * confirmed requirement is hidden by default and only shown when
  * `includeUnclearEligibility` is set. See docs/decision-log.md.
  */
+function toRankable(opportunity: Opportunity): Opportunity & RelevanceRankable {
+  return {
+    ...opportunity,
+    interestTags: opportunity.interest_tags,
+    opportunityType: opportunity.opportunity_type,
+    locationText: opportunity.location_text,
+    verificationLabel: opportunity.verification_label,
+    applicationStatus: opportunity.application_status,
+  };
+}
+
+/** Safety cap on how many matching rows a text search re-ranks client-side — this catalog is small (spec section: 20-40 opportunities target), so re-ranking in JS rather than building relevance scoring into Postgrest is the pragmatic choice (see docs/decision-log.md), but the cap keeps that assumption from silently breaking if the catalog grows far beyond that. */
+const SEARCH_RERANK_LIMIT = 500;
+
 export async function listOpportunities(
   supabase: Client,
   filters: OpportunityFilters,
   gradeLevel: number | null,
-  options: { studentState?: string | null; now?: Date } = {}
+  options: { studentState?: string | null; now?: Date; studentInterestTags?: readonly string[] } = {}
 ): Promise<ListOpportunitiesResult> {
   const now = options.now ?? new Date();
   const studentState = options.studentState ?? null;
@@ -144,6 +159,27 @@ export async function listOpportunities(
   }
 
   const from = (filters.page - 1) * PAGE_SIZE;
+
+  // A text search re-ranks by deterministic relevance (title/org/tag/
+  // description match + profile-match signals + verification quality —
+  // see search-ranking.ts) rather than the plain deadline/created_at
+  // ordering below, since relevance can't be expressed as a Postgrest
+  // `.order()` clause. Every matching row (up to a safety cap) is fetched
+  // once, ranked in JS, then sliced for the requested page — reasonable
+  // for this catalog's scale (tens, not thousands, of rows).
+  if (filters.q) {
+    const { data, count, error } = await query.order("created_at", { ascending: false }).limit(SEARCH_RERANK_LIMIT);
+
+    if (error) {
+      console.error("[opportunities] failed to list opportunities:", error.message);
+      return { data: [], count: 0, error: "Something went wrong loading opportunities." };
+    }
+
+    const ranked = sortByRelevance((data ?? []).map(toRankable), filters.q, options.studentInterestTags ?? []);
+    const page = ranked.slice(from, from + PAGE_SIZE);
+    return { data: page, count: count ?? ranked.length, error: null };
+  }
+
   const to = from + PAGE_SIZE - 1;
 
   const { data, count, error } = await query
@@ -237,6 +273,44 @@ export async function getOpportunitySourceNames(
   }
 
   return new Map((data ?? []).map((row) => [row.id, row.name]));
+}
+
+export type OpportunitySourceLinkEntry = {
+  sourceId: string;
+  sourceName: string;
+  sourceUrl: string;
+  isPrimary: boolean;
+};
+
+/** Every source that reports this opportunity (Milestone 7 section 7: "multiple official source links when available"), primary first — not just the single `source_id` on the row itself. */
+export async function getOpportunitySourceLinks(
+  supabase: Client,
+  opportunityId: string
+): Promise<OpportunitySourceLinkEntry[]> {
+  const { data: links, error } = await supabase
+    .from("opportunity_source_links")
+    .select("source_id, source_url, is_primary")
+    .eq("opportunity_id", opportunityId);
+
+  if (error) {
+    console.error("[opportunities] failed to load source links:", error.message);
+    return [];
+  }
+  if (!links || links.length === 0) return [];
+
+  const sourceNames = await getOpportunitySourceNames(
+    supabase,
+    links.map((link) => link.source_id)
+  );
+
+  return links
+    .map((link) => ({
+      sourceId: link.source_id,
+      sourceName: sourceNames.get(link.source_id) ?? "Unknown source",
+      sourceUrl: link.source_url,
+      isPrimary: link.is_primary,
+    }))
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
 }
 
 export type SavedOpportunityEntry = {

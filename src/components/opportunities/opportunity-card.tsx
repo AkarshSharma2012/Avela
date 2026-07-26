@@ -6,7 +6,7 @@ import { MatchBadge } from "@/components/opportunities/match-badge";
 import { SaveButton } from "@/components/opportunities/save-button";
 import { VerificationBadge } from "@/components/opportunities/verification-badge";
 import { Chip } from "@/components/ui/chip";
-import { DEADLINE_STATUS_LABELS, FORMAT_LABELS, TYPE_LABELS } from "@/lib/opportunities/constants";
+import { APPLICATION_STATUS_LABELS, FORMAT_LABELS, TYPE_LABELS } from "@/lib/opportunities/constants";
 import type { EligibilityResult } from "@/lib/opportunities/eligibility-engine";
 import {
   formatCommitment,
@@ -53,7 +53,7 @@ function OpportunityCard({
             <p className="text-xs text-muted-foreground">Source: {sourceName}</p>
           )}
         </div>
-        <VerificationBadge isSample={opportunity.is_sample} isVerified={opportunity.is_verified} />
+        <VerificationBadge isSample={opportunity.is_sample} verificationLabel={opportunity.verification_label} />
       </div>
 
       <p className="line-clamp-2 text-sm leading-relaxed text-text-secondary">
@@ -75,7 +75,7 @@ function OpportunityCard({
 
       <div className="space-y-0.5 text-xs text-muted-foreground">
         <p>
-          {formatDeadline(opportunity.application_deadline)} · {DEADLINE_STATUS_LABELS[opportunity.deadline_status]}
+          {formatDeadline(opportunity.application_deadline)} · {APPLICATION_STATUS_LABELS[opportunity.application_status]}
         </p>
         <p>{formatCommitment(opportunity.weekly_commitment_hours, opportunity.duration_text)}</p>
         <p>{formatLastVerified(opportunity.last_verified_at)}</p>

@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "import:opportunities": "node scripts/import-opportunities.ts",
-    "ingest:opportunities": "tsx scripts/ingest-opportunities.ts"
+    "ingest:opportunities": "tsx scripts/ingest-opportunities.ts",
+    "opportunities:coverage": "tsx scripts/opportunities-coverage.ts",
+    "opportunities:review": "tsx scripts/opportunities-review.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

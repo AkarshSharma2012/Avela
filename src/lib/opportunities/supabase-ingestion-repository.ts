@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type {
   DedupeCandidateRow,
+  FieldEvidenceDraft,
   IngestionRepository,
   NewOpportunityFields,
   OpportunityPatch,
@@ -67,7 +68,7 @@ export function createSupabaseIngestionRepository(supabase: Client): IngestionRe
       const { data: opportunities, error } = await supabase
         .from("opportunities")
         .select(
-          "id, title, organization, canonical_url, application_url, source_url, application_deadline"
+          "id, title, organization, canonical_url, application_url, source_url, application_deadline, min_grade, max_grade"
         )
         .or(`organization.eq.${organization},application_url.eq.${applicationUrl}`)
         .limit(20);
@@ -106,6 +107,8 @@ export function createSupabaseIngestionRepository(supabase: Client): IngestionRe
           applicationUrl: o.application_url,
           sourceUrl: o.source_url,
           applicationDeadline: o.application_deadline,
+          minGrade: o.min_grade,
+          maxGrade: o.max_grade,
           primarySourceId,
           primarySourceTrustLevel: primarySourceId ? (trustLevelBySourceId.get(primarySourceId) ?? null) : null,
           sourceLinkCount: linkCountByOpportunity.get(o.id) ?? 0,
@@ -168,6 +171,22 @@ export function createSupabaseIngestionRepository(supabase: Client): IngestionRe
         }))
       );
       if (error) throw new Error(`Failed to insert review queue entries: ${error.message}`);
+    },
+
+    async insertFieldEvidence(opportunityId: string, evidence: FieldEvidenceDraft[]) {
+      if (evidence.length === 0) return;
+      const { error } = await supabase.from("opportunity_field_evidence").insert(
+        evidence.map(({ fieldName, entry, sourceUrl }) => ({
+          opportunity_id: opportunityId,
+          field_name: fieldName,
+          extracted_value: entry.value,
+          evidence_text: entry.evidence,
+          source_url: sourceUrl,
+          extraction_method: entry.method,
+          confidence: entry.confidence,
+        }))
+      );
+      if (error) throw new Error(`Failed to insert field evidence: ${error.message}`);
     },
   };
 }

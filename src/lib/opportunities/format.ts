@@ -71,6 +71,26 @@ export function formatLastVerified(lastVerifiedAt: string | null): string {
   return `Last checked ${formatIsoDate(lastVerifiedAt)}`;
 }
 
+/** `null` (never a row) when the requirement is unknown — only rendered when extraction actually found a yes/no answer. See detail-extraction.ts's boolean fields. */
+export function formatRequirement(value: boolean | null, label: string): string | null {
+  if (value === null) return null;
+  return value ? `${label} required` : `${label} not required`;
+}
+
+export function formatAgeRange(minAge: number | null, maxAge: number | null): string | null {
+  if (minAge === null && maxAge === null) return null;
+  if (minAge === null) return `Up to age ${maxAge}`;
+  if (maxAge === null) return `Age ${minAge}+`;
+  if (minAge === maxAge) return `Age ${minAge}`;
+  return `Ages ${minAge}–${maxAge}`;
+}
+
+export function formatMoney(amount: number | null): string | null {
+  if (amount === null) return null;
+  const hasCents = !Number.isInteger(amount);
+  return `$${amount.toLocaleString("en-US", { minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: 2 })}`;
+}
+
 export function formatDateRange(
   startDate: string | null,
   endDate: string | null

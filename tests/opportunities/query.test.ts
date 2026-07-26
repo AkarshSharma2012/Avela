@@ -39,6 +39,10 @@ function createFakeSupabase(result: { data: unknown[]; count: number; error: nul
       calls.push(["range", ...args]);
       return Promise.resolve(result);
     },
+    limit: (...args: unknown[]) => {
+      calls.push(["limit", ...args]);
+      return Promise.resolve(result);
+    },
     maybeSingle: () => Promise.resolve({ data: null, error: null }),
   };
 
@@ -322,6 +326,30 @@ describe("getSavedOpportunities", () => {
       eligibility_notes: null,
       application_cycle: null,
       recurrence_pattern: null,
+      verification_label: "needs_review",
+      has_unresolved_conflict: false,
+      application_opens_at: null,
+      application_closes_at: null,
+      status_evidence: null,
+      status_checked_at: null,
+      age_min: null,
+      age_max: null,
+      school_enrollment_required: null,
+      stipend_amount: null,
+      hourly_pay: null,
+      financial_aid_available: null,
+      transportation_support: null,
+      housing_support: null,
+      essay_required: null,
+      recommendation_required: null,
+      transcript_required: null,
+      interview_required: null,
+      parent_consent_required: null,
+      schedule_text: null,
+      attendance_requirements: null,
+      application_contact: null,
+      notification_date: null,
+      extended_details: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };

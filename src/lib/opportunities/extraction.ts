@@ -48,17 +48,78 @@ function field<T>(
   return { value, confidence, evidence, method };
 }
 
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  nbsp: " ",
+  quot: '"',
+  apos: "'",
+  lt: "<",
+  gt: ">",
+  mdash: "—",
+  ndash: "–",
+  rsquo: "’",
+  lsquo: "‘",
+  ldquo: "“",
+  rdquo: "”",
+  hellip: "…",
+  trade: "™",
+  copy: "©",
+  reg: "®",
+};
+
+/**
+ * Decodes both named (`&amp;`, `&rsquo;`, ...) and numeric (`&#8211;`,
+ * `&#x2013;`) HTML entities. Applied to every raw regex-captured
+ * title/organization value before it's stored — real page `<title>`
+ * tags routinely contain typographic entities (en dashes, curly quotes)
+ * that a naive substring capture leaves literally as `&#8211;` in stored
+ * data otherwise (confirmed on MIT MITES's real page title). An entity
+ * this map doesn't recognize is left as-is rather than guessed at.
+ */
+export function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (match, entity: string) => {
+    if (entity[0] === "#") {
+      const isHex = entity[1]?.toLowerCase() === "x";
+      const codePoint = Number.parseInt(entity.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+      if (!Number.isFinite(codePoint) || codePoint <= 0) return match;
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return match;
+      }
+    }
+    return NAMED_HTML_ENTITIES[entity.toLowerCase()] ?? match;
+  });
+}
+
 /** `<title>` and `<meta name="description">` — the lowest-effort, lowest-confidence deterministic source, used only as a fallback. */
 export function extractFromHtmlMetadata(html: string): ExtractedOpportunityFields {
   const result: ExtractedOpportunityFields = {};
 
   const titleMatch = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
   if (titleMatch) {
-    const title = titleMatch[1].trim();
+    const title = decodeHtmlEntities(titleMatch[1]).trim();
     result.title = field(title || null, title ? 55 : 0, titleMatch[0], "html_metadata");
   }
 
   return result;
+}
+
+/**
+ * A handful of common CMS taxonomy/listing labels (`... Archive`,
+ * `Category: ...`, `Tag: ...`, `Page 2 of 5`) that WordPress/Drupal-style
+ * sites often leave in `og:title` on pages whose Open Graph metadata was
+ * never customized for that specific page — confirmed live on
+ * societyforscience.org/regeneron-sts/, whose `og:title` literally reads
+ * "Regeneron STS Pages Archive" while the same page's real `<title>` tag
+ * correctly says "Regeneron Science Talent Search - Society for Science".
+ * A generic label like this is not "the official title... supported by
+ * the page" even though `og:title` is normally a higher-confidence,
+ * deliberately-authored source — so it's excluded here and the merge
+ * falls through to JSON-LD/HTML-metadata instead of trusting it blindly.
+ */
+function looksLikeGenericArchiveLabel(title: string): boolean {
+  return /\b(pages?\s+)?archives?\b|^category:|^tag:|\bpage \d+ of \d+\b/i.test(title);
 }
 
 /** `<meta property="og:...">` tags — moderate confidence, since sites populate these deliberately for link previews. */
@@ -67,14 +128,18 @@ export function extractFromOpenGraph(html: string): ExtractedOpportunityFields {
 
   const ogTitle = /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["'][^>]*>/i.exec(html);
   if (ogTitle) {
-    result.title = field(ogTitle[1].trim() || null, 70, ogTitle[0], "open_graph");
+    const title = decodeHtmlEntities(ogTitle[1]).trim();
+    if (title && !looksLikeGenericArchiveLabel(title)) {
+      result.title = field(title, 70, ogTitle[0], "open_graph");
+    }
   }
 
   const ogSiteName = /<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']*)["'][^>]*>/i.exec(
     html
   );
   if (ogSiteName) {
-    result.organization = field(ogSiteName[1].trim() || null, 65, ogSiteName[0], "open_graph");
+    const siteName = decodeHtmlEntities(ogSiteName[1]).trim();
+    result.organization = field(siteName || null, 65, ogSiteName[0], "open_graph");
   }
 
   return result;
@@ -106,7 +171,7 @@ export function extractFromJsonLd(html: string): ExtractedOpportunityFields {
       const record = candidate as Record<string, unknown>;
 
       if (!result.title && typeof record.name === "string") {
-        result.title = field(record.name, 90, block[1].slice(0, 300), "json_ld");
+        result.title = field(decodeHtmlEntities(record.name).trim(), 90, block[1].slice(0, 300), "json_ld");
       }
 
       const deadline = record.applicationDeadline ?? record.validThrough;
@@ -123,7 +188,12 @@ export function extractFromJsonLd(html: string): ExtractedOpportunityFields {
               ? ((provider as Record<string, unknown>).name as string)
               : null;
         if (providerName) {
-          result.organization = field(providerName, 90, block[1].slice(0, 300), "json_ld");
+          result.organization = field(
+            decodeHtmlEntities(providerName).trim(),
+            90,
+            block[1].slice(0, 300),
+            "json_ld"
+          );
         }
       }
     }
@@ -148,30 +218,23 @@ export const llmAssistedExtractor: LlmAssistedExtractor = async () => {
   );
 };
 
-const HTML_ENTITIES: Record<string, string> = {
-  "&amp;": "&",
-  "&nbsp;": " ",
-  "&quot;": '"',
-  "&#39;": "'",
-  "&apos;": "'",
-  "&lt;": "<",
-  "&gt;": ">",
-};
-
 /**
  * Strips a raw HTML page down to plain visible text: `<script>`/`<style>`
  * blocks and semantic chrome landmarks (`<nav>`, `<header>`, `<footer>`,
  * `<aside>`) removed entirely, every remaining tag replaced with a space,
- * common entities decoded, whitespace collapsed. The chrome landmarks are
- * stripped because confirmed live on NIST's site: its `<nav>` sidebar
- * lists sibling programs ("Middle School Science Teachers...") that a
- * naive whole-page scan misread as the actual (high-school-only) SHIP
- * program's own eligibility text. Federal .gov sites are required
- * (Section 508/WCAG) to mark chrome with these semantic landmarks, so
- * this is a reliable signal, not a page-specific hack. Deliberately not a
- * full HTML parser/readability algorithm — good enough to run
- * `normalization.ts`'s regex-based extractors against real prose, at the
- * cost of not handling nested same-tag chrome regions perfectly.
+ * entities decoded (via `decodeHtmlEntities`, the same decoder
+ * title/organization extraction uses — real prose is full of typographic
+ * entities like `&#8217;`/`&rsquo;` this must not leave undecoded either),
+ * whitespace collapsed. The chrome landmarks are stripped because
+ * confirmed live on NIST's site: its `<nav>` sidebar lists sibling
+ * programs ("Middle School Science Teachers...") that a naive whole-page
+ * scan misread as the actual (high-school-only) SHIP program's own
+ * eligibility text. Federal .gov sites are required (Section 508/WCAG) to
+ * mark chrome with these semantic landmarks, so this is a reliable
+ * signal, not a page-specific hack. Deliberately not a full HTML
+ * parser/readability algorithm — good enough to run normalization.ts's
+ * regex-based extractors against real prose, at the cost of not handling
+ * nested same-tag chrome regions perfectly.
  */
 export function stripHtmlToText(html: string): string {
   const withoutScripts = html
@@ -182,10 +245,7 @@ export function stripHtmlToText(html: string): string {
     .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
     .replace(/<aside[\s\S]*?<\/aside>/gi, " ");
   const withoutTags = withoutScripts.replace(/<[^>]+>/g, " ");
-  const decoded = withoutTags.replace(
-    /&amp;|&nbsp;|&quot;|&#39;|&apos;|&lt;|&gt;/g,
-    (entity) => HTML_ENTITIES[entity] ?? entity
-  );
+  const decoded = decodeHtmlEntities(withoutTags);
   return decoded.replace(/\s+/g, " ").trim();
 }
 

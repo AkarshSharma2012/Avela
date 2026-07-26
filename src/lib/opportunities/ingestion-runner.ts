@@ -1,6 +1,9 @@
 import type { OpportunitySourceAdapter, RawOpportunityRecordInput } from "@/lib/opportunities/adapters/types";
+import { detectApplicationStatus } from "@/lib/opportunities/application-status";
+import { detectDeadlineConflict, detectGradeRangeConflict, summarizeConflicts } from "@/lib/opportunities/conflicts";
 import { computeNextVerificationAt } from "@/lib/opportunities/recheck";
 import { computeContentHash, detectDuplicate, type DedupeCandidate } from "@/lib/opportunities/dedupe";
+import { extractDetailFields, type DetailExtractionResult } from "@/lib/opportunities/detail-extraction";
 import { evaluateDeadline } from "@/lib/opportunities/deadline";
 import {
   extractApplicationLinkCandidate,
@@ -13,17 +16,27 @@ import {
 } from "@/lib/opportunities/extraction";
 import type {
   DedupeCandidateRow,
+  FieldEvidenceDraft,
   IngestionRepository,
   NewOpportunityFields,
 } from "@/lib/opportunities/ingestion-repository";
-import { normalizeCost, normalizeDeadline, normalizeGradeRange, normalizeUrl } from "@/lib/opportunities/normalization";
+import {
+  normalizeCitizenshipRequirement,
+  normalizeCost,
+  normalizeDeadline,
+  normalizeGradeRange,
+  normalizeResidencyRequirement,
+  normalizeUrl,
+} from "@/lib/opportunities/normalization";
 import { computeQualityScore } from "@/lib/opportunities/quality";
 import { checkUrl, type DnsLookupFn, type FetchFn } from "@/lib/opportunities/url-safety";
+import { computeVerificationLabel } from "@/lib/opportunities/verification-labels";
 import type {
   OpportunityApplicationStatus,
   OpportunityCostType,
   OpportunityDeadlineStatus,
   OpportunityEligibilityDataStatus,
+  OpportunityExtendedDetails,
   OpportunityFormat,
   OpportunityReviewQueueReason,
   OpportunitySourceTrustLevel,
@@ -64,6 +77,7 @@ const DEADLINE_CONTEXT_PATTERN = /\b(deadline|closing date|apply by|due|opens?|c
 const ELIGIBILITY_CONTEXT_PATTERN =
   /\b(applicant|eligib|must be|enrolled|requirement|time of application|currently a|open to|students?)\b/gi;
 const COST_CONTEXT_PATTERN = /\b(free|no cost|no charge|paid|tuition|fee|unpaid|stipend|cost)\b/gi;
+const RESIDENCY_CITIZENSHIP_CONTEXT_PATTERN = /\b(resident|residents|residency|citizen|citizens|citizenship)\b/gi;
 
 /** Joins tight windows (`windowChars` on each side) around every match of `pattern` — empty string (never the full page) when nothing matches, so the caller's normalizer correctly reports "unknown" instead of guessing from irrelevant text. */
 function relevantExcerpt(text: string, pattern: RegExp, windowChars: number): string {
@@ -151,13 +165,107 @@ function trustRank(level: OpportunitySourceTrustLevel | null): number {
 }
 
 /**
+ * Splits `extractDetailFields`'s output into (a) the typed
+ * `opportunities` columns the spec's deep-detail fields promote to real
+ * columns, (b) the `extended_details` jsonb bag for the true long tail,
+ * and (c) one `opportunity_field_evidence` draft per field that actually
+ * found something — see docs/decision-log.md's Milestone 7 section for
+ * why the split is drawn where it is.
+ */
+function applyDetailFields(
+  detail: DetailExtractionResult,
+  sourceUrl: string
+): {
+  columns: Partial<NewOpportunityFields>;
+  extendedDetails: OpportunityExtendedDetails;
+  evidence: FieldEvidenceDraft[];
+} {
+  const columns: Partial<NewOpportunityFields> = {};
+  const extendedDetails: OpportunityExtendedDetails = {};
+  const evidence: FieldEvidenceDraft[] = [];
+
+  for (const [name, extracted] of Object.entries(detail)) {
+    if (!extracted) continue;
+    evidence.push({ fieldName: name, entry: extracted, sourceUrl });
+
+    switch (name) {
+      case "age_range": {
+        const value = extracted.value as { minAge: number | null; maxAge: number | null };
+        columns.age_min = value.minAge;
+        columns.age_max = value.maxAge;
+        break;
+      }
+      case "school_enrollment_required":
+        columns.school_enrollment_required = extracted.value as boolean;
+        break;
+      case "essay_required":
+        columns.essay_required = extracted.value as boolean;
+        break;
+      case "recommendation_required":
+        columns.recommendation_required = extracted.value as boolean;
+        break;
+      case "transcript_required":
+        columns.transcript_required = extracted.value as boolean;
+        break;
+      case "interview_required":
+        columns.interview_required = extracted.value as boolean;
+        break;
+      case "parent_consent_required":
+        columns.parent_consent_required = extracted.value as boolean;
+        break;
+      case "application_contact":
+        columns.application_contact = extracted.value as string;
+        break;
+      case "hourly_pay":
+        columns.hourly_pay = extracted.value as number;
+        break;
+      case "stipend_amount":
+        columns.stipend_amount = extracted.value as number;
+        break;
+      case "financial_aid_available":
+        columns.financial_aid_available = extracted.value as boolean;
+        break;
+      case "transportation_support":
+        columns.transportation_support = extracted.value as boolean;
+        break;
+      case "housing_support":
+        columns.housing_support = extracted.value as boolean;
+        break;
+      case "notification_date":
+        columns.notification_date = extracted.value as string;
+        break;
+      case "schedule_text":
+        columns.schedule_text = extracted.value as string;
+        break;
+      case "attendance_requirements":
+        columns.attendance_requirements = extracted.value as string;
+        break;
+      case "certificate_or_credit":
+        extendedDetails.certificate_or_credit = extracted.value as string;
+        break;
+      case "required_documents":
+        extendedDetails.required_documents = extracted.value as string[];
+        break;
+      case "skills":
+        extendedDetails.skills = extracted.value as string[];
+        break;
+      default:
+        break;
+    }
+  }
+
+  return { columns, extendedDetails, evidence };
+}
+
+/**
  * Runs the full discover → extract → normalize → validate → dedupe →
  * store → verify pipeline for one source. `dryRun: true` performs every
  * step except the actual writes (`createIngestionRun`,
  * `insertRawRecord`, `insertOpportunity`, `updateOpportunity`,
- * `upsertSourceLink`, `insertReviewQueueEntries`, `completeIngestionRun`
- * are never called) — `findDedupeCandidates` (a read) still runs, so a
- * dry run's report of insert-vs-update is accurate.
+ * `upsertSourceLink`, `insertReviewQueueEntries`, `insertFieldEvidence`,
+ * `completeIngestionRun` are never called) — `findDedupeCandidates` (a
+ * read) still runs, so a dry run's report of insert-vs-update is
+ * accurate.
  */
 export async function runIngestion(params: {
   source: IngestionSourceConfig;
@@ -168,6 +276,8 @@ export async function runIngestion(params: {
   fetchImpl?: FetchFn;
   dnsLookupImpl?: DnsLookupFn;
   logger?: Logger;
+  /** Caps how many discovered records this run actually processes — an ingestion-safety limit (spec section 11), independent of an adapter's own max-page/max-record limits. `undefined`/omitted means no additional cap. */
+  recordLimit?: number;
 }): Promise<IngestionRunSummary> {
   const { source, adapter, repository, dryRun } = params;
   const now = params.now ?? new Date();
@@ -179,7 +289,8 @@ export async function runIngestion(params: {
 
   let records: RawOpportunityRecordInput[];
   try {
-    records = await adapter.discover();
+    const discovered = await adapter.discover();
+    records = params.recordLimit ? discovered.slice(0, params.recordLimit) : discovered;
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     logger.error(`run failed — source=${source.id}: ${message}`);
@@ -352,17 +463,43 @@ async function processRecord(params: {
     now
   );
   const deadlineStatus: OpportunityDeadlineStatus = deadlineEvaluation.status;
+
+  // --- Application-status intelligence (Milestone 7 section 6) ------------
+  // Phrase-based, and independent of deadlineStatus — an explicit official
+  // statement ("applications are currently closed", "rolling admissions",
+  // "next cycle opens in November") takes priority over the plain
+  // deadline-status-derived fallback below, which only kicks in when no
+  // phrase was found at all. Operates on `text` only, never `html`/links,
+  // so an "Apply" link's mere presence can never register as "open".
+  const statusResult = detectApplicationStatus(text, now);
+  const combinedIsRolling = isRolling || statusResult.isRolling;
   const applicationStatus: OpportunityApplicationStatus =
-    deadlineStatus === "open" || deadlineStatus === "rolling"
-      ? "accepting_applications"
-      : deadlineStatus === "upcoming"
-        ? "opening_soon"
-        : deadlineStatus === "closed"
-          ? "closed"
-          : "unknown";
+    statusResult.status !== "unknown"
+      ? statusResult.status
+      : deadlineStatus === "open" || deadlineStatus === "rolling"
+        ? "accepting_applications"
+        : deadlineStatus === "upcoming"
+          ? "opening_soon"
+          : deadlineStatus === "closed"
+            ? "closed"
+            : "unknown";
 
   const gradeField = normalizeGradeRange(eligibilityText);
   const costField = normalizeCost(costText);
+
+  // --- Residency / citizenship (previously never wired into the pipeline —
+  // confirmed live on the NASA High School Aerospace Scholars source,
+  // whose real program is Texas-residents-only: without this, every
+  // ingested row silently got residency_requirements = null regardless of
+  // what the source page actually said, which eligibility-engine.ts then
+  // reads as "no restriction" for every student). Both normalizers are
+  // inherently low-confidence (free text is ambiguous), so any real match
+  // queues residency_citizenship_ambiguity for a human to confirm rather
+  // than being trusted outright — same "review queue exists precisely for
+  // this" reasoning documented on that reason in review-queue.ts.
+  const residencyCitizenshipText = relevantExcerpt(text, RESIDENCY_CITIZENSHIP_CONTEXT_PATTERN, 50);
+  const residencyField = normalizeResidencyRequirement(residencyCitizenshipText);
+  const citizenshipField = normalizeCitizenshipRequirement(residencyCitizenshipText);
 
   const gradeConfidentlyIncompatible =
     gradeField.confidence === "high" &&
@@ -390,6 +527,10 @@ async function processRecord(params: {
   if (deadlineStatus === "unknown") queuedReasons.push("unknown_deadline");
   if (gradeField.value !== null && gradeField.confidence === "low") queuedReasons.push("low_confidence_grade");
   if (!applicationUrlOk) queuedReasons.push("broken_application_url");
+  if (applicationStatus === "unknown") queuedReasons.push("unclear_application_status");
+  if (residencyField.value !== null || citizenshipField.value !== null) {
+    queuedReasons.push("residency_citizenship_ambiguity");
+  }
 
   // --- Hard rejects for brand-new records only — an *existing* stored
   // opportunity is updated to reflect a newly-closed/incompatible status
@@ -418,6 +559,13 @@ async function processRecord(params: {
       : applicationUrlOk
         ? "partially_verified"
         : "unverified";
+
+  // --- Deep detail extraction (Milestone 7 section 3) ----------------------
+  const detailFieldsResult = extractDetailFields(text);
+  const { columns: detailColumns, extendedDetails, evidence: fieldEvidence } = applyDetailFields(
+    detailFieldsResult,
+    record.sourceUrl
+  );
 
   // --- Dedupe -------------------------------------------------------------
   const contentHash = computeContentHash([applicationUrl, title, organization]);
@@ -451,6 +599,31 @@ async function processRecord(params: {
     };
   }
 
+  // --- Cross-source conflict detection (Milestone 7 section 9) -------------
+  // Only meaningful when merging into an existing row — a brand-new
+  // opportunity has nothing yet to conflict with.
+  const deadlineConflict = bestMatch
+    ? detectDeadlineConflict(
+        bestMatch.row.applicationDeadline,
+        deadlineField.value,
+        bestMatch.row.primarySourceTrustLevel,
+        source.trustLevel,
+        now
+      )
+    : ({ kind: "no_conflict" } as const);
+  const gradeConflict = bestMatch
+    ? detectGradeRangeConflict(
+        { minGrade: bestMatch.row.minGrade, maxGrade: bestMatch.row.maxGrade },
+        { minGrade: gradeField.value?.minGrade ?? null, maxGrade: gradeField.value?.maxGrade ?? null },
+        bestMatch.row.primarySourceTrustLevel,
+        source.trustLevel
+      )
+    : ({ kind: "no_conflict" } as const);
+  const conflictSummary = summarizeConflicts([deadlineConflict, gradeConflict]);
+
+  if (conflictSummary.hasUnresolvedConflict) queuedReasons.push("conflicting_sources");
+  if (conflictSummary.needsCycleConfirmation) queuedReasons.push("new_cycle_unconfirmed");
+
   const quality = computeQualityScore(
     {
       sourceTrustLevel: source.trustLevel,
@@ -461,6 +634,21 @@ async function processRecord(params: {
       verificationStatus,
       lastVerifiedAt: now.toISOString(),
       sourceCount: bestMatch ? bestMatch.row.sourceLinkCount + (bestMatch.row.primarySourceId === source.id ? 0 : 1) : 1,
+    },
+    now
+  );
+
+  const verificationLabel = computeVerificationLabel(
+    {
+      sourceTrustLevel: source.trustLevel,
+      applicationUrlOk,
+      gradeEligibilityClear: eligibilityStatus === "defined",
+      deadlineStatus,
+      applicationStatus,
+      isRolling: combinedIsRolling,
+      isNextCycleAnnounced: statusResult.isNextCycleAnnounced,
+      hasUnresolvedConflict: conflictSummary.hasUnresolvedConflict,
+      lastVerifiedAt: now.toISOString(),
     },
     now
   );
@@ -490,17 +678,37 @@ async function processRecord(params: {
     last_verified_at: now.toISOString(),
     next_verification_at: nextVerificationAt.toISOString(),
     is_verified: verificationStatus === "verified",
+    residency_requirements: residencyField.value,
+    citizenship_requirements: citizenshipField.value,
+    verification_label: verificationLabel,
+    has_unresolved_conflict: conflictSummary.hasUnresolvedConflict,
+    application_opens_at: statusResult.opensAt,
+    application_closes_at: statusResult.closesAt ?? deadlineField.value,
+    status_evidence: statusResult.evidence || null,
+    status_checked_at: now.toISOString(),
+    age_min: null,
+    age_max: null,
+    school_enrollment_required: null,
+    stipend_amount: null,
+    hourly_pay: null,
+    financial_aid_available: null,
+    transportation_support: null,
+    housing_support: null,
+    essay_required: null,
+    recommendation_required: null,
+    transcript_required: null,
+    interview_required: null,
+    parent_consent_required: null,
+    schedule_text: null,
+    attendance_requirements: null,
+    application_contact: null,
+    notification_date: null,
+    extended_details: extendedDetails,
+    ...detailColumns,
   };
 
   if (bestMatch) {
     if (bestMatch.verdict === "probable_duplicate") queuedReasons.push("probable_duplicate");
-    if (
-      bestMatch.row.applicationDeadline &&
-      deadlineField.value &&
-      bestMatch.row.applicationDeadline !== deadlineField.value
-    ) {
-      queuedReasons.push("conflicting_sources");
-    }
 
     if (!dryRun) {
       await repository.updateOpportunity(bestMatch.row.id, fields);
@@ -515,6 +723,9 @@ async function processRecord(params: {
         await repository.insertReviewQueueEntries(
           queuedReasons.map((reason) => ({ opportunityId: bestMatch!.row.id, reason }))
         );
+      }
+      if (fieldEvidence.length > 0) {
+        await repository.insertFieldEvidence(bestMatch.row.id, fieldEvidence);
       }
     }
 
@@ -548,6 +759,9 @@ async function processRecord(params: {
   });
   if (queuedReasons.length > 0) {
     await repository.insertReviewQueueEntries(queuedReasons.map((reason) => ({ opportunityId, reason })));
+  }
+  if (fieldEvidence.length > 0) {
+    await repository.insertFieldEvidence(opportunityId, fieldEvidence);
   }
 
   return {

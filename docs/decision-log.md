@@ -541,3 +541,166 @@ via `WebFetch` to inspect its structure/robots.txt — read-only, no writes,
 standard practice for evaluating whether a source is even usable) — but
 the ingestion runner itself, end-to-end, has only been run against the
 in-memory fake repository in the test suite. See `testing.md`.
+
+---
+
+# Decision Log — Milestone 7
+
+## `opportunities.extended_details` is a JSONB bag, not ~15 new single-use columns
+
+The spec's deep-extraction field list (demographic/membership
+restrictions, prerequisites, required experience, required documents,
+application steps, skills, expected outcomes, certificate/credit
+availability, program benefits) has no query/filter/sort requirement
+anywhere in `query.ts`, `ranking.ts`, or the UI — each is display-only,
+shown when present and simply omitted when not. Adding a dedicated column
+per field would be schema noise for data nothing indexes on. The fields
+the UI/engines *do* need to filter, sort, or gate on directly (age range,
+stipend/hourly amounts, essay/recommendation/transcript/interview/parent-
+consent requirements, financial aid, transportation/housing support,
+schedule text, application contact, notification date,
+`school_enrollment_required`) are real typed columns instead — the same
+"promote it to a column only if something needs to query on it" judgment
+call Milestone 5 already made for `eligibility_status` vs. a free-text
+field. Every key in `extended_details`, and every value in a promoted
+column, has a matching `opportunity_field_evidence` row with the
+confidence/evidence/method/source URL that produced it — never a bare
+fabricated value.
+
+## `verification_label` is a new, separate column — `verification_status` is untouched
+
+Milestone 5's `verification_status` (`unverified`/`partially_verified`/
+`verified`/`stale`/`rejected`) is exactly what `query.ts`'s default
+exclusions and `ranking.ts`'s sort key already depend on. Widening that
+same enum to the spec's seven finer states (`verified_accepting`,
+`verified_opening_soon`, `verified_next_cycle`,
+`partially_verified_deadline_unclear`, `needs_review`, `closed`, `stale`)
+would force every existing caller to handle values it was never written
+against. `verification_label` is a second, additive column computed
+alongside it (see `src/lib/opportunities/verification-labels.ts`) —
+`verification_status` is derived *from* the label for backward
+compatibility, not the other way around, so Milestones 4-6 code and tests
+are unaffected. Same reasoning Milestone 6 already used for
+`verification_confidence` reusing `quality.ts`'s score without
+`verification_status` reusing its label.
+
+## Raw evidence stays behind a sanitizing `security definer` function, never a direct table grant
+
+`opportunity_field_evidence.evidence_text` is a real excerpt of fetched
+page text — not attacker-controlled in the SQL-injection sense (it never
+reaches a query built with string concatenation), but it's still
+untrusted *display* content from a third-party site, and the spec
+explicitly says raw evidence must never expose "scripts, tokens, or
+unnecessary page content" to a student's browser. Rather than grant
+`authenticated` a `select` policy on the table directly (which would hand
+back whatever an extractor happened to capture, unsanitized, forever),
+`get_opportunity_evidence_summary(opportunity_id)` is the one narrow,
+read-only path: it takes only an id (never a free-form filter), returns a
+fixed column set, and strips tags/truncates `evidence_text` to 300 chars
+server-side. `set search_path = public` on the function guards against
+the same schema-resolution attack `handle_new_user()` already defends
+against in the Milestone 1 migration. The table itself keeps RLS enabled
+with zero client-facing policies, identical to every other
+ingestion-internal table since Milestone 5.
+
+## Stanford Pre-Collegiate Studies excluded despite a technically-permissive `robots.txt`
+
+Its `robots.txt` allows `User-agent: *` generally, but the same file
+separately names and disallows `ClaudeBot`/`anthropic-ai`/`GPTBot`
+specifically. Reading that as "the generic rule permits it" would be
+exactly the bad-faith letter-vs-spirit loophole the spec's "exclude
+blocked or unstable sources" instruction exists to close — an AI-crawler
+allowlist violation is a real block for the agent doing this fetching,
+not a gray area. Documented as rejected in `opportunity-sources.md` on
+that basis alone; its markup was otherwise good (a genuine multi-program
+listing page, which would have been a second real listing-adapter
+target).
+
+## Net source count (9) falls short of the spec's 10-15 target — documented, not padded
+
+Of 20 candidates checked, 7 hit an infrastructure-level block (a `403` on
+`robots.txt` itself or on the page itself) and 2 more are the right
+organization with a URL this pass couldn't locate. Per Milestone 6's own
+precedent (shipping 2 of an allowed 2-3 rather than forcing a low-quality
+third), 9 well-vetted real sources shipped rather than padding the roster
+with a thin page, a directory summary, or an AI-crawler-blocking site.
+See `opportunity-sources.md`'s Milestone 7 section for the full
+per-candidate accept/reject trail.
+
+## A background research task briefly wrote unauthorized schema edits — reverted, then its design was adopted on its merits
+
+A subagent dispatched read-only ("do not write any code or edit any
+files — this is read-only research") to vet candidate sources
+nonetheless began editing `src/types/database.ts` and drafted a
+competing migration file before failing on an unrelated connection error.
+Both were caught via `git status` before this session did any further
+work on top of them, and the corrupted `database.ts` (duplicate/
+conflicting type declarations) was fully reverted to the last-known-good
+state. Its draft migration's actual *design* — promoting the
+query/filter-relevant deep-detail fields to real columns, keeping only
+the true long tail in a jsonb bag, and the sanitizing
+`get_opportunity_evidence_summary()` function — was independently sound
+and became the basis for the migration that actually shipped (see the
+two entries above), but every line was re-read and re-verified against
+this session's own schema decisions before being kept; nothing was
+trusted just because it was already there.
+
+## Live-dry-run follow-up: five real defects found and fixed, one adapter disabled
+
+After the milestone's initial build, real (network, zero-write) dry-runs
+against all 9 sources surfaced defects no synthetic test had caught:
+
+- **HTML entities never decoded in title/organization extraction.**
+  `extractFromHtmlMetadata`/`extractFromOpenGraph`/`extractFromJsonLd`
+  stored raw regex-captured text verbatim; MIT MITES's real `<title>`
+  contains a literal `&#8211;` (en dash) that was being stored as-is. Added
+  one shared `decodeHtmlEntities()` (named + numeric/hex entities) and
+  applied it everywhere a title/organization string is captured, plus
+  consolidated `stripHtmlToText`'s own narrower entity map into the same
+  function rather than maintaining two.
+- **`og:title` blindly outranked a correct `<title>` tag.** Confirmed live
+  on `societyforscience.org/regeneron-sts/`: its `og:title` literally
+  reads "Regeneron STS Pages Archive" (a stale CMS taxonomy label) while
+  the same page's `<title>` correctly says "Regeneron Science Talent
+  Search - Society for Science". Added a narrow, generalizable
+  `looksLikeGenericArchiveLabel()` guard (`Archive(s)`, `Category:`,
+  `Tag:`, `Page N of M`) to `extractFromOpenGraph` so a generic label
+  never wins the merge over a real title — a known WordPress/Drupal
+  failure mode, not a one-off patch for this single site.
+- **`residency_requirements`/`citizenship_requirements` were never wired
+  into the ingestion pipeline at all** (confirmed via `grep` — zero
+  references anywhere in `ingestion-runner.ts`). This was invisible until
+  NASA's real High School Aerospace Scholars program — genuinely
+  Texas-residents-only — got ingested and would have silently shown as
+  unrestricted to a student in any other state. Wired
+  `normalizeResidencyRequirement`/`normalizeCitizenshipRequirement` into
+  `processRecord` against a new `RESIDENCY_CITIZENSHIP_CONTEXT_PATTERN`
+  excerpt, added the two columns to `NewOpportunityFields`, and queue
+  `residency_citizenship_ambiguity` whenever either finds a match (both
+  normalizers are inherently low-confidence by design).
+- **`normalization.ts`'s `RESIDENCY_PATTERN` was case-sensitive on
+  "resident(s)".** The very NASA text that motivated the fix above
+  ("Texas Residents", capitalized as a bullet heading) didn't match the
+  lowercase-only pattern. Added an inline `[Rr]` alternation rather than
+  a blanket `/i` flag, since the region-name capture group's `[A-Z]`
+  requirement is deliberate (rejects lowercase non-proper-noun words) and
+  must stay case-sensitive.
+- **DoSomething.org's site structure changed since vetting.** A live
+  dry-run found zero detail links; direct inspection of the raw HTML our
+  bot receives showed the real site now uses `/program/<slug>` and
+  `/act-and-lead?causes=<uuid>`, not the `/us/campaigns/<slug>` pattern
+  `dosomething-adapter.ts` was built against. Per this project's standing
+  "disable rather than pretend it works" rule, it's removed from the
+  active `SOURCES` list in `scripts/ingest-opportunities.ts` rather than
+  patched with an unverified guess at the new structure — the adapter
+  file, `listing-adapter.ts`'s framework, and their tests are kept since
+  the framework itself remains valid and reusable.
+
+Every fix above has a regression test reproducing the exact real-world
+input that exposed it (see `tests/opportunities/extraction.test.ts`,
+`normalization.test.ts`, and `ingestion-runner.test.ts`). All 8 remaining
+active sources were re-verified via live dry-run after the fixes; none
+made any database write (confirmed both by code inspection — every write
+method in `runIngestion` is gated behind `!dryRun` — and by
+`opportunities:coverage` showing the live catalog unchanged at 2 rows
+throughout).
