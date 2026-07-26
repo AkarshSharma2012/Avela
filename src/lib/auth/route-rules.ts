@@ -2,7 +2,14 @@
 // the server-component pages (authoritative checks). Kept dependency-free
 // so they're trivially unit-testable — see tests/auth/route-rules.test.ts.
 
-export const PROTECTED_PATHS = ["/dashboard", "/onboarding"];
+export const PROTECTED_PATHS = [
+  "/dashboard",
+  "/onboarding",
+  "/opportunities",
+  "/saved",
+  "/profile",
+  "/settings",
+];
 
 /** Routes that require an authenticated session at minimum. */
 export function isProtectedPath(pathname: string): boolean {

@@ -15,6 +15,14 @@ describe("isProtectedPath", () => {
     expect(isProtectedPath("/onboarding")).toBe(true);
   });
 
+  it("protects the Milestone 3 app-shell routes and their nested paths", () => {
+    expect(isProtectedPath("/opportunities")).toBe(true);
+    expect(isProtectedPath("/opportunities/123")).toBe(true);
+    expect(isProtectedPath("/saved")).toBe(true);
+    expect(isProtectedPath("/profile")).toBe(true);
+    expect(isProtectedPath("/settings")).toBe(true);
+  });
+
   it("does not protect public routes", () => {
     expect(isProtectedPath("/login")).toBe(false);
     expect(isProtectedPath("/signup")).toBe(false);
