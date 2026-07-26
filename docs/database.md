@@ -179,3 +179,189 @@ has not been applied to any live project.** Apply
 `supabase/migrations/20260725010000_onboarding_expansion.sql` (in addition
 to, not instead of, the Milestone 1 migration) before testing the onboarding
 wizard's final save against a real Supabase project.
+
+---
+
+# Database — Milestone 4 additions
+
+Migration: `supabase/migrations/20260726000000_create_opportunities.sql`
+(new file — no earlier migration was modified).
+
+## `opportunities`
+
+The full column list matches the spec's suggested fields, plus one
+addition: `interest_tags text[] not null default '{}'`, constrained (via a
+`<@` check) to the same category values as `student_interests.interest`
+minus its two fallback answers (`'Not sure yet'`, `'Other'`). Without this,
+the matching engine (`src/lib/opportunities/matching.ts`) would have no way
+to compare a student's onboarding interests against an opportunity at all.
+
+`is_sample boolean not null default false` is also new. It is distinct from
+`is_verified`: `is_verified` means "staff confirmed this listing is
+accurate"; `is_sample` means "this row only exists for local development
+and was never a real opportunity." A check constraint
+(`opportunities_not_sample_and_verified`) makes the two mutually exclusive
+at the database level, not just by convention.
+
+Indexes exist on `is_active`, `opportunity_type`, `format`, `cost_type`,
+`application_deadline`, `(min_grade, max_grade)`, and a GIN index on
+`interest_tags` — one per filter the Opportunities page's server-side query
+actually uses (see `src/lib/opportunities/query.ts`).
+
+## `saved_opportunities`
+
+Composite primary key `(user_id, opportunity_id)`; a plain bookmark, no
+extra columns beyond `created_at`. The primary key already indexes lookups
+by `user_id` (the leading column); `opportunity_id` gets its own index for
+the reverse direction (e.g. "how many students saved this").
+
+## RLS
+
+`opportunities` has exactly one policy: `select`, `to authenticated`,
+`using (is_active = true)`. There is deliberately no insert/update/delete
+policy for any client-facing role — every write goes through
+`scripts/import-opportunities.ts` using the service-role key, which
+bypasses RLS entirely. See `security.md`.
+
+`saved_opportunities` follows the same pattern as Milestone 2's join
+tables: `select`/`insert`/`delete` policies, every one scoped to
+`auth.uid() = user_id`, no `update` policy (a save is either present or
+absent, never edited in place).
+
+## Seed data vs. the migration
+
+`supabase/seed.sql` (not a migration) holds 10 sample opportunities,
+`is_sample = true` and `is_verified = false` on every row, with
+`application_url`/`source_url` pointing at `example.org` rather than any
+real organization. This is Supabase's own dedicated seed-file mechanism:
+`supabase db reset` and `supabase start` run it automatically after every
+migration; `supabase db push` — the command used to apply migrations to a
+real project — never touches it. That's what keeps sample data out of
+production without any extra flag or manual step: pushing the migration to
+a live project creates the (empty) tables only.
+
+## Why two queries instead of an embedded join
+
+`getSavedOpportunities` (`src/lib/opportunities/query.ts`) fetches
+`saved_opportunities` rows and `opportunities` rows as two separate
+queries, joined in JS by id, rather than one Postgrest embedded-resource
+query (`.select("*, opportunities(*)")`). Milestone 1's `database.md` note
+about hand-written table types needing an explicit `Relationships: []`
+field already flags that this hand-written `src/types/database.ts` doesn't
+generate real relationship metadata the way `supabase gen types` would;
+getting an embed's types right by hand is easy to get subtly wrong in a way
+that only surfaces at runtime. Two plain queries avoid that risk entirely,
+at the cost of one extra round trip for a list that's typically small
+(a student's own bookmarks).
+
+## Regenerating types
+
+Once a real project has this migration applied, regenerate
+`src/types/database.ts` the same way Milestone 1 documented:
+
+```bash
+npx supabase gen types typescript --local > src/types/database.ts
+```
+
+The hand-written `opportunities`/`saved_opportunities` entries in that file
+were written to match the migration exactly, including `Relationships: []`
+on both tables.
+
+## Applying the migration
+
+Same two options as Milestones 1 and 2 — see above. **This migration has
+not been applied to any live project**, including the real Supabase
+project already configured in this environment's `.env.local`. Apply
+`supabase/migrations/20260726000000_create_opportunities.sql` before
+testing the Opportunities/Saved pages against it, and run
+`supabase db reset` (or otherwise execute `supabase/seed.sql`) if you want
+the sample data for local development.
+
+---
+
+# Database — Milestone 5 additions
+
+Migration: `supabase/migrations/20260727000000_opportunity_intelligence.sql`
+(new file — no earlier migration was modified).
+
+## New tables
+
+| Table | Purpose |
+|---|---|
+| `opportunity_sources` | Registry of places opportunities are discovered from (section 1 of the spec). |
+| `opportunity_ingestion_runs` | One row per discovery/ingestion pass against a source. |
+| `raw_opportunity_records` | Unprocessed fetch results, awaiting extraction/normalization. **Never shown to students** — see `security.md`. |
+| `opportunity_source_links` | Maps one canonical opportunity to every source that reported it (the deduplication foundation, section 7). |
+| `opportunity_review_queue` | Admin review foundation (section 14) — ambiguous deadlines, probable duplicates, low-confidence extraction, etc. |
+
+All five are RLS-enabled with **zero** client-facing policies: no
+`authenticated`/`anon` role can select, insert, update, or delete any row.
+The only access path is a service-role connection (which bypasses RLS
+entirely), matching the exact pattern `scripts/import-opportunities.ts`
+already established in Milestone 4. `tests/opportunities/intelligence-migration.test.ts`
+asserts this statically for every one of the five tables.
+
+## `opportunities` — new columns
+
+Additive only — every new column is either nullable or has a safe default,
+so existing (including sample) rows keep working unmodified:
+
+| Column | Type | Notes |
+|---|---|---|
+| `canonical_url` | `text` | Nullable. The "one true URL" for a listing once deduplicated across sources. |
+| `source_id` | `uuid` | References `opportunity_sources`, nullable, `on delete set null`. |
+| `last_verified_at` / `next_verification_at` | `timestamptz` | Nullable. Drive the recheck scheduler — see `src/lib/opportunities/recheck.ts`. |
+| `verification_status` | `text` | `unverified` (default) \| `partially_verified` \| `verified` \| `stale` \| `rejected`. |
+| `verification_confidence` | `integer` | `0`-`100`, default `0`. |
+| `deadline_status` | `text` | `open` \| `rolling` \| `upcoming` \| `closed` \| `unknown` (default) — see `src/lib/opportunities/deadline.ts`. |
+| `eligibility_status` | `text` | `defined` \| `partially_defined` \| `undefined` (default). **Not** a per-student outcome — see the callout below. |
+| `application_status` | `text` | `accepting_applications` \| `opening_soon` \| `closed` \| `unknown` (default). |
+| `source_last_modified_at` | `timestamptz` | Nullable. |
+| `first_seen_at` / `last_seen_at` | `timestamptz` | Default `now()`. |
+| `rejection_reason` | `text` | Nullable. |
+| `residency_requirements` / `citizenship_requirements` | `text` | Nullable, already-normalized short text (e.g. `"Washington"`, `"U.S. citizen"`) — see `normalization.ts`. |
+| `eligibility_notes` | `text` | Nullable, free-form. |
+| `application_cycle` / `recurrence_pattern` | `text` | Nullable (e.g. `"annual"`). |
+
+**Why `eligibility_status` is not the same as a student's eligibility
+outcome:** the spec's section 3 lists `eligibility_status` as a column on
+`opportunities`, but eligibility (`eligible` / `likely_eligible` /
+`unclear` / `ineligible`) is inherently per-student — it depends on a
+grade, a state, an availability bracket that vary by who's asking, so it
+can never be a fixed fact about the *opportunity* row. This column instead
+answers a different, opportunity-only question: "are this listing's
+eligibility *criteria* (grade range, residency, citizenship) known at
+all?" A per-student outcome is always computed live by
+`src/lib/opportunities/eligibility-engine.ts` and never stored. See
+`decision-log.md`.
+
+Five new indexes support `query.ts`'s default visibility filters:
+`opportunities_verification_status_idx`, `opportunities_deadline_status_idx`,
+`opportunities_application_status_idx`,
+`opportunities_next_verification_at_idx`, `opportunities_source_id_idx`.
+
+## New library modules (`src/lib/opportunities/`)
+
+| Module | Responsibility |
+|---|---|
+| `normalization.ts` | Deterministic parsers (title, organization, grade range, cost, deadline, commitment, URL, interest tags, residency/citizenship) — every result is `{ value, confidence, raw }`, never a bare guess. |
+| `deadline.ts` | `evaluateDeadline()` — classifies into the five `deadline_status` values, including the "recurring program with a stale prior-year date" rule. |
+| `recheck.ts` | `computeNextVerificationAt()` — the recheck cadence table from section 12. |
+| `eligibility-engine.ts` | `evaluateEligibility()` — per-student, per-request; see the callout above. |
+| `dedupe.ts` | `computeContentHash()` / `detectDuplicate()` — deterministic signals only, no fuzzy/ML text similarity. |
+| `quality.ts` | `computeQualityScore()` — internal numeric score, fixed student-facing label. |
+| `ranking.ts` | `rankOpportunities()` — the seven-priority deterministic pipeline; excludes (not just deprioritizes) expired/ineligible results. |
+| `extraction.ts` | `ExtractedField<T>` shape (`value`/`confidence`/`evidence`/`method`) plus deterministic JSON-LD/Open Graph/HTML-metadata extractors and an unimplemented LLM-assisted interface placeholder. |
+| `review-queue.ts` | `evaluateReviewNeed()` / `buildReviewQueueEntries()` — pure decision functions for the section-14 admin queue. |
+| `adapters/` | `OpportunitySourceAdapter` interface plus manual-JSON, CSV, and static-dev-fixture adapters. No broad web crawler, no Google-results scraping. |
+
+## Applying the migration
+
+Same two options as Milestones 1, 2, and 4 — see above. **This migration
+has not been applied to any live project.** Apply
+`supabase/migrations/20260727000000_opportunity_intelligence.sql` (in
+addition to, not instead of, every earlier migration) before running any
+real ingestion against a live Supabase project. See
+`docs/opportunity-sources.md` for the source strategy this schema is
+meant to support, and `decision-log.md` for the assumptions made
+interpreting the spec's suggested-but-underspecified fields.

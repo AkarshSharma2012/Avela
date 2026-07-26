@@ -1,34 +1,45 @@
-// Frontend-only shape for Milestone 4's opportunity data — no `opportunities`
-// table exists yet, so this is not generated from `src/types/database.ts`.
-// Field choices mirror the filter categories called for in the Opportunities
-// page: type, format, location, grade eligibility, cost, deadline, commitment.
+// Backed by public.opportunities / public.saved_opportunities — see
+// supabase/migrations/20260726000000_create_opportunities.sql and
+// docs/database.md. Re-exports the enum types from database.ts rather than
+// redeclaring them, so the two can never silently drift apart.
 
-export type OpportunityType =
-  | "internship"
-  | "competition"
-  | "volunteer"
-  | "summer_program"
-  | "research"
-  | "scholarship"
-  | "club";
+import type { Database } from "@/types/database";
 
-export type OpportunityFormat = "virtual" | "in_person" | "hybrid";
+export type {
+  OpportunityType,
+  OpportunityFormat,
+  OpportunityCostType,
+  OpportunitySourceType,
+  OpportunitySourceTrustLevel,
+  OpportunitySourceCrawlMethod,
+  OpportunityIngestionRunStatus,
+  RawOpportunityProcessingStatus,
+  OpportunityVerificationStatus,
+  OpportunityDeadlineStatus,
+  OpportunityEligibilityDataStatus,
+  OpportunityApplicationStatus,
+  OpportunityReviewQueueReason,
+  OpportunityReviewQueueStatus,
+} from "@/types/database";
 
-export type OpportunityCost = "free" | "paid";
+export type Opportunity = Database["public"]["Tables"]["opportunities"]["Row"];
 
-export type OpportunityCommitment = "short_term" | "year_round" | "summer";
+export type SavedOpportunity =
+  Database["public"]["Tables"]["saved_opportunities"]["Row"];
 
-export type Opportunity = {
-  id: string;
-  title: string;
-  organization: string;
-  description: string;
-  type: OpportunityType;
-  format: OpportunityFormat;
-  location: string | null;
-  minGradeLevel: number | null;
-  maxGradeLevel: number | null;
-  cost: OpportunityCost;
-  deadline: string | null;
-  commitment: OpportunityCommitment;
-};
+export type OpportunitySource = Database["public"]["Tables"]["opportunity_sources"]["Row"];
+
+export type OpportunityIngestionRun =
+  Database["public"]["Tables"]["opportunity_ingestion_runs"]["Row"];
+
+export type RawOpportunityRecord =
+  Database["public"]["Tables"]["raw_opportunity_records"]["Row"];
+
+export type OpportunitySourceLink =
+  Database["public"]["Tables"]["opportunity_source_links"]["Row"];
+
+export type OpportunityReviewQueueEntry =
+  Database["public"]["Tables"]["opportunity_review_queue"]["Row"];
+
+/** An opportunity annotated with whether the current student has saved it. */
+export type OpportunityWithSaved = Opportunity & { isSaved: boolean };
