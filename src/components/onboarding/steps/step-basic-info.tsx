@@ -20,15 +20,15 @@ function StepBasicInfo({
     draft.country.trim().toLowerCase() === UNITED_STATES.toLowerCase();
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
+    <div className="stagger-children flex flex-col gap-6">
+      <div className="animate-fade-up">
         <h2 className="font-heading text-2xl text-foreground">Basic information</h2>
         <p className="mt-2 text-sm text-text-secondary">
           Tell us a little about yourself so we can start personalizing Avela.
         </p>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="animate-fade-up flex flex-col gap-2">
         <Label htmlFor="preferredName">Preferred name</Label>
         <Input
           id="preferredName"
@@ -44,7 +44,7 @@ function StepBasicInfo({
         />
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="animate-fade-up flex flex-col gap-2">
         <Label id="gradeLevel-label">Grade level</Label>
         <RadioGroup
           aria-labelledby="gradeLevel-label"
@@ -60,7 +60,7 @@ function StepBasicInfo({
         <FieldError errors={errors.gradeLevel ? [errors.gradeLevel] : undefined} />
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="animate-fade-up flex flex-col gap-2">
         <Label htmlFor="country">Country</Label>
         <Input
           id="country"
@@ -72,7 +72,7 @@ function StepBasicInfo({
         <FieldError errors={errors.country ? [errors.country] : undefined} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="animate-fade-up grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
           <Label htmlFor="city">
             City

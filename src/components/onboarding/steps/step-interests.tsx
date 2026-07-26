@@ -35,8 +35,8 @@ function StepInterests({
     : INTEREST_CATEGORIES.slice(0, GUIDED_VISIBLE_COUNT);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
+    <div className="stagger-children flex flex-col gap-6">
+      <div className="animate-fade-up">
         <h2 id="interests-heading" className="font-heading text-2xl text-foreground">
           What are you interested in?
         </h2>
@@ -50,7 +50,7 @@ function StepInterests({
       <div
         role="group"
         aria-labelledby="interests-heading"
-        className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
+        className="animate-fade-up grid grid-cols-1 gap-2.5 sm:grid-cols-2"
       >
         {visibleCategories.map((interest) => (
           <OptionCheckbox
@@ -73,7 +73,7 @@ function StepInterests({
         </button>
       )}
 
-      <div className="flex flex-col gap-3 border-t border-border pt-5">
+      <div className="animate-fade-up flex flex-col gap-3 border-t border-border pt-5">
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {INTEREST_FALLBACKS.map((interest) => (
             <OptionCheckbox

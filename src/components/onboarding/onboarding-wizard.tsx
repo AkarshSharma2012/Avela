@@ -1,10 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/ui/form-message";
+import { Spinner } from "@/components/ui/spinner";
 import { ProgressIndicator } from "@/components/onboarding/progress-indicator";
 import { StepAvailability } from "@/components/onboarding/steps/step-availability";
 import { StepBasicInfo } from "@/components/onboarding/steps/step-basic-info";
@@ -52,10 +54,13 @@ function OnboardingWizard() {
   const [draft, setDraft] = useState<OnboardingDraft>(EMPTY_DRAFT);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [hydrated, setHydrated] = useState(false);
+  const [direction, setDirection] = useState<"forward" | "back">("forward");
   const [actionState, formAction, pending] = useActionState(
     submitOnboarding,
     INITIAL_ACTION_STATE
   );
+  const completing = actionState.success ?? false;
+  const formEntries = useMemo(() => draftToFormEntries(draft), [draft]);
 
   // Read the saved draft only after mount so the server-rendered markup and
   // the client's first paint match exactly (no hydration mismatch). This is
@@ -77,7 +82,8 @@ function OnboardingWizard() {
   useEffect(() => {
     if (!actionState.success) return;
     clearDraft();
-    router.replace("/dashboard");
+    const timer = setTimeout(() => router.replace("/dashboard"), 850);
+    return () => clearTimeout(timer);
   }, [actionState.success, router]);
 
   function updateDraft(patch: Partial<OnboardingDraft>) {
@@ -86,6 +92,7 @@ function OnboardingWizard() {
 
   function goToStep(step: number) {
     setErrors({});
+    setDirection(step >= draft.step ? "forward" : "back");
     setDraft((current) => ({ ...current, step }));
   }
 
@@ -111,6 +118,39 @@ function OnboardingWizard() {
     );
   }
 
+  if (completing) {
+    return (
+      <div className="animate-in fade-in flex min-h-[24rem] flex-col items-center justify-center gap-4 text-center duration-300">
+        <div className="animate-dot-pop flex size-16 items-center justify-center rounded-full bg-primary/10">
+          <svg viewBox="0 0 24 24" className="size-8 text-primary" fill="none">
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              opacity="0.25"
+            />
+            <path
+              d="M7 12.5l3 3 7-7.5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="animate-check-draw"
+            />
+          </svg>
+        </div>
+        <div className="animate-fade-up" style={{ animationDelay: "150ms" }}>
+          <p className="font-heading text-xl text-foreground">You&apos;re all set.</p>
+          <p className="mt-1 text-sm text-text-secondary">
+            Taking you to your dashboard…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const isLastStep = draft.step === TOTAL_STEPS - 1;
 
   return (
@@ -123,22 +163,30 @@ function OnboardingWizard() {
         </FormMessage>
       )}
 
-      {draft.step === 0 && (
-        <StepBasicInfo draft={draft} errors={errors} onChange={updateDraft} />
-      )}
-      {draft.step === 1 && (
-        <StepInterests draft={draft} errors={errors} onChange={updateDraft} />
-      )}
-      {draft.step === 2 && (
-        <StepGoals draft={draft} errors={errors} onChange={updateDraft} />
-      )}
-      {draft.step === 3 && (
-        <StepPreferences draft={draft} errors={errors} onChange={updateDraft} />
-      )}
-      {draft.step === 4 && (
-        <StepAvailability draft={draft} errors={errors} onChange={updateDraft} />
-      )}
-      {draft.step === 5 && <StepReview draft={draft} onEditStep={goToStep} />}
+      <div
+        key={draft.step}
+        className={cn(
+          "animate-in fade-in duration-[var(--duration-page)] ease-[var(--ease-standard)]",
+          direction === "forward" ? "slide-in-from-right-8" : "slide-in-from-left-8"
+        )}
+      >
+        {draft.step === 0 && (
+          <StepBasicInfo draft={draft} errors={errors} onChange={updateDraft} />
+        )}
+        {draft.step === 1 && (
+          <StepInterests draft={draft} errors={errors} onChange={updateDraft} />
+        )}
+        {draft.step === 2 && (
+          <StepGoals draft={draft} errors={errors} onChange={updateDraft} />
+        )}
+        {draft.step === 3 && (
+          <StepPreferences draft={draft} errors={errors} onChange={updateDraft} />
+        )}
+        {draft.step === 4 && (
+          <StepAvailability draft={draft} errors={errors} onChange={updateDraft} />
+        )}
+        {draft.step === 5 && <StepReview draft={draft} onEditStep={goToStep} />}
+      </div>
 
       <div className="mt-10 flex items-center justify-between border-t border-border pt-6">
         <Button
@@ -153,7 +201,7 @@ function OnboardingWizard() {
 
         {isLastStep ? (
           <form action={formAction}>
-            {draftToFormEntries(draft).map((entry, index) => (
+            {formEntries.map((entry, index) => (
               <input
                 key={`${entry.name}-${index}`}
                 type="hidden"
@@ -161,7 +209,13 @@ function OnboardingWizard() {
                 value={entry.value}
               />
             ))}
-            <Button type="submit" size="lg" disabled={pending}>
+            <Button
+              type="submit"
+              size="lg"
+              disabled={pending}
+              className="gap-2 shadow-[var(--shadow-gold)]"
+            >
+              {pending && <Spinner />}
               {pending ? "Saving…" : "Complete onboarding"}
             </Button>
           </form>

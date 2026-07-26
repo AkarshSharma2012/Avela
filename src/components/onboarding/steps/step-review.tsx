@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
 import {
   EXPERIENCE_LEVEL_OPTIONS,
   PREFERENCE_GROUPS,
@@ -30,18 +31,22 @@ function StepReview({
     .filter((part) => part.length > 0)
     .join(", ");
 
-  const interestSummary =
+  const interestChips =
     draft.interests.length > 0
-      ? draft.interests
-          .map((interest) =>
-            interest === "Other" && draft.otherInterestText.trim().length > 0
-              ? `Other (${draft.otherInterestText.trim()})`
-              : interest
-          )
-          .join(", ")
-      : "—";
+      ? draft.interests.map((interest) =>
+          interest === "Other" && draft.otherInterestText.trim().length > 0
+            ? `Other (${draft.otherInterestText.trim()})`
+            : interest
+        )
+      : [];
 
-  const sections: { step: number; title: string; rows: [string, string][] }[] = [
+  const sections: {
+    step: number;
+    title: string;
+    rows?: [string, string][];
+    chips?: string[];
+    emptyLabel?: string;
+  }[] = [
     {
       step: 0,
       title: "Basic information",
@@ -54,22 +59,20 @@ function StepReview({
     {
       step: 1,
       title: "Interests",
-      rows: [["Selected", interestSummary]],
+      chips: interestChips,
+      emptyLabel: "—",
     },
     {
       step: 2,
       title: "Current goals",
-      rows: [["Selected", draft.goals.length > 0 ? draft.goals.join(", ") : "—"]],
+      chips: draft.goals,
+      emptyLabel: "—",
     },
     {
       step: 3,
       title: "Opportunity preferences",
-      rows: [
-        [
-          "Selected",
-          preferenceLabels.length > 0 ? preferenceLabels.join(", ") : "No preference set",
-        ],
-      ],
+      chips: preferenceLabels,
+      emptyLabel: "No preference set",
     },
     {
       step: 4,
@@ -83,36 +86,50 @@ function StepReview({
   ];
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
+    <div className="stagger-children flex flex-col gap-6">
+      <div className="animate-fade-up">
         <h2 className="font-heading text-2xl text-foreground">Review and complete</h2>
         <p className="mt-2 text-sm text-text-secondary">
           Take a look before you finish. You can edit any section below.
         </p>
       </div>
 
-      <div className="flex flex-col divide-y divide-border rounded-md border border-border">
+      <div className="animate-fade-up flex flex-col divide-y divide-border rounded-md border border-border">
         {sections.map((section) => (
           <div
             key={section.title}
-            className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:justify-between"
+            className="group flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-muted/40 sm:flex-row sm:items-start sm:justify-between"
           >
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">{section.title}</p>
-              <dl className="mt-2 flex flex-col gap-1">
-                {section.rows.map(([label, value]) => (
-                  <div key={label} className="text-sm text-text-secondary">
-                    <span className="text-muted-foreground">{label}: </span>
-                    <span className="break-words">{value}</span>
+              {section.rows && (
+                <dl className="mt-2 flex flex-col gap-1">
+                  {section.rows.map(([label, value]) => (
+                    <div key={label} className="text-sm text-text-secondary">
+                      <span className="text-muted-foreground">{label}: </span>
+                      <span className="break-words">{value}</span>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {section.chips &&
+                (section.chips.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {section.chips.map((chip) => (
+                      <Chip key={chip} size="sm">
+                        {chip}
+                      </Chip>
+                    ))}
                   </div>
+                ) : (
+                  <p className="mt-2 text-sm text-text-secondary">{section.emptyLabel}</p>
                 ))}
-              </dl>
             </div>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="self-start"
+              className="self-start opacity-80 transition-opacity group-hover:opacity-100"
               onClick={() => onEditStep(section.step)}
             >
               Edit

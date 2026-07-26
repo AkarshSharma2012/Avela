@@ -23,8 +23,8 @@ function StepGoals({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
+    <div className="stagger-children flex flex-col gap-6">
+      <div className="animate-fade-up">
         <h2 id="goals-heading" className="font-heading text-2xl text-foreground">
           What are you hoping to do right now?
         </h2>
@@ -37,7 +37,7 @@ function StepGoals({
       <div
         role="group"
         aria-labelledby="goals-heading"
-        className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
+        className="animate-fade-up grid grid-cols-1 gap-2.5 sm:grid-cols-2"
       >
         {GOALS.map((goal) => (
           <OptionCheckbox

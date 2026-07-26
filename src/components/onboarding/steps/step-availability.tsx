@@ -20,8 +20,8 @@ function StepAvailability({
   onChange: (patch: Partial<OnboardingDraft>) => void;
 }) {
   return (
-    <div className="flex flex-col gap-6">
-      <div>
+    <div className="stagger-children flex flex-col gap-6">
+      <div className="animate-fade-up">
         <h2 className="font-heading text-2xl text-foreground">
           Availability and experience
         </h2>
@@ -30,7 +30,7 @@ function StepAvailability({
         </p>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="animate-fade-up flex flex-col gap-2">
         <Label id="weeklyAvailability-label">Weekly time availability</Label>
         <RadioGroup
           aria-labelledby="weeklyAvailability-label"
@@ -50,7 +50,7 @@ function StepAvailability({
         />
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="animate-fade-up flex flex-col gap-2">
         <Label id="experienceLevel-label">Current experience level</Label>
         <RadioGroup
           aria-labelledby="experienceLevel-label"
@@ -70,7 +70,7 @@ function StepAvailability({
         />
       </div>
 
-      <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-secondary px-4 py-4">
+      <div className="animate-fade-up flex items-start justify-between gap-4 rounded-md border border-border bg-secondary px-4 py-4 transition-colors has-data-[checked]:border-primary/30">
         <div>
           <Label htmlFor="guidedMode">Guided Mode</Label>
           <p className="mt-1 max-w-sm text-sm text-text-secondary">

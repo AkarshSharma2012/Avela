@@ -21,8 +21,8 @@ function StepPreferences({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
+    <div className="stagger-children flex flex-col gap-6">
+      <div className="animate-fade-up">
         <h2 className="font-heading text-2xl text-foreground">
           Opportunity preferences
         </h2>
@@ -33,7 +33,7 @@ function StepPreferences({
       </div>
 
       {PREFERENCE_GROUPS.map((group) => (
-        <div key={group.id} className="flex flex-col gap-2.5">
+        <div key={group.id} className="animate-fade-up flex flex-col gap-2.5">
           <div>
             <p id={`pref-${group.id}-label`} className="text-sm font-medium text-foreground">
               {group.label}

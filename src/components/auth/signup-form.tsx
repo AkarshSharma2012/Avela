@@ -10,6 +10,7 @@ import { FieldError } from "@/components/ui/field-error";
 import { FormMessage } from "@/components/ui/form-message";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 
 const initialState: AuthFormState = {};
 
@@ -18,11 +19,13 @@ function SignupForm() {
 
   if (state.success) {
     return (
-      <div className="flex flex-col gap-4">
-        <FormMessage variant="success">{state.message}</FormMessage>
+      <div className="stagger-children flex flex-col gap-4">
+        <div className="animate-fade-up">
+          <FormMessage variant="success">{state.message}</FormMessage>
+        </div>
         <Link
           href="/login"
-          className="text-sm font-medium text-primary hover:underline"
+          className="animate-fade-up text-sm font-medium text-primary hover:underline"
         >
           Back to login
         </Link>
@@ -31,12 +34,12 @@ function SignupForm() {
   }
 
   return (
-    <form action={formAction} noValidate className="flex flex-col gap-5">
+    <form action={formAction} noValidate className="stagger-children flex flex-col gap-5">
       {state.message && (
         <FormMessage variant="error">{state.message}</FormMessage>
       )}
 
-      <div className="flex flex-col gap-2">
+      <div className="animate-fade-up flex flex-col gap-2">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -50,7 +53,7 @@ function SignupForm() {
         <FieldError id="email-error" errors={state.errors?.email} />
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="animate-fade-up flex flex-col gap-2">
         <Label htmlFor="password">Password</Label>
         <PasswordInput
           id="password"
@@ -70,7 +73,7 @@ function SignupForm() {
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="animate-fade-up flex flex-col gap-2">
         <Label htmlFor="confirmPassword">Confirm password</Label>
         <PasswordInput
           id="confirmPassword"
@@ -88,11 +91,17 @@ function SignupForm() {
         />
       </div>
 
-      <Button type="submit" size="lg" disabled={pending} className="mt-2 w-full">
+      <Button
+        type="submit"
+        size="lg"
+        disabled={pending}
+        className="animate-fade-up mt-2 w-full gap-2"
+      >
+        {pending && <Spinner className="text-primary-foreground" />}
         {pending ? "Creating account…" : "Create account"}
       </Button>
 
-      <p className="text-center text-sm text-text-secondary">
+      <p className="animate-fade-up text-center text-sm text-text-secondary">
         Already have an account?{" "}
         <Link href="/login" className="font-medium text-primary hover:underline">
           Log in
