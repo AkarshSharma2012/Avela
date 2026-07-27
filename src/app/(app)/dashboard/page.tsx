@@ -9,6 +9,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 
+import { DiscoverMore } from "@/components/opportunities/discover-more";
 import { FeaturedMatchCard } from "@/components/opportunities/featured-match-card";
 import { FindMoreButton } from "@/components/opportunities/find-more-button";
 import { OpportunityCard } from "@/components/opportunities/opportunity-card";
@@ -317,11 +318,7 @@ export default async function DashboardPage({
                 </ul>
               )}
 
-              {chosenForYou.status === "exhausted" && (
-                <p role="status" className="rounded-xl border border-dashed border-border bg-secondary px-5 py-4 text-sm text-muted-foreground">
-                  That&apos;s everything I&apos;ve verified for your profile so far.
-                </p>
-              )}
+              {chosenForYou.status === "exhausted" && <DiscoverMore />}
 
               {chosenForYou.status === "only_broader_remaining" && chosenForYou.nextShown !== null && (
                 <div className="flex flex-col items-start gap-3 rounded-xl border border-border bg-secondary px-5 py-4">

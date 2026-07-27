@@ -186,6 +186,21 @@ export type OpportunityFieldEvidenceExtractionMethod =
   | "llm_assisted"
   | "manual";
 
+// Fresh Profile-Based Discovery
+
+/** Real phases a "Find more" fresh-discovery run actually passes through — see src/lib/opportunities/discovery.ts. */
+export type StudentDiscoveryRunStatus =
+  | "pending"
+  | "checking_catalog"
+  | "discovering"
+  | "verifying"
+  | "ranking"
+  | "completed"
+  | "failed";
+
+/** Mirrors matching.ts's `MatchTier` verbatim — duplicated here for the same reason every other enum in this file is (see the extraction-method comment above), not a second competing taxonomy. */
+export type RecommendationTier = "strong_fit" | "possible_fit" | "limited_fit";
+
 export type Database = {
   public: {
     Tables: {
@@ -767,6 +782,96 @@ export type Database = {
         Update: {
           user_id?: string;
           opportunity_id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      student_discovery_runs: {
+        Row: {
+          id: string;
+          user_id: string;
+          status: StudentDiscoveryRunStatus;
+          batch_number: number;
+          profile_snapshot: Record<string, unknown>;
+          sources_selected: string[];
+          started_at: string;
+          completed_at: string | null;
+          results_found: number;
+          error_summary: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          status?: StudentDiscoveryRunStatus;
+          batch_number: number;
+          profile_snapshot?: Record<string, unknown>;
+          sources_selected?: string[];
+          started_at?: string;
+          completed_at?: string | null;
+          results_found?: number;
+          error_summary?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          status?: StudentDiscoveryRunStatus;
+          batch_number?: number;
+          profile_snapshot?: Record<string, unknown>;
+          sources_selected?: string[];
+          started_at?: string;
+          completed_at?: string | null;
+          results_found?: number;
+          error_summary?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      student_opportunity_recommendations: {
+        Row: {
+          user_id: string;
+          opportunity_id: string;
+          discovery_run_id: string | null;
+          batch_number: number;
+          personalized_rank: number;
+          recommendation_tier: RecommendationTier;
+          fit_reasons: string[];
+          concerns: string[];
+          shown_at: string;
+          dismissed_at: string | null;
+          saved_at: string | null;
+          last_verified_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          opportunity_id: string;
+          discovery_run_id?: string | null;
+          batch_number: number;
+          personalized_rank: number;
+          recommendation_tier: RecommendationTier;
+          fit_reasons?: string[];
+          concerns?: string[];
+          shown_at?: string;
+          dismissed_at?: string | null;
+          saved_at?: string | null;
+          last_verified_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          opportunity_id?: string;
+          discovery_run_id?: string | null;
+          batch_number?: number;
+          personalized_rank?: number;
+          recommendation_tier?: RecommendationTier;
+          fit_reasons?: string[];
+          concerns?: string[];
+          shown_at?: string;
+          dismissed_at?: string | null;
+          saved_at?: string | null;
+          last_verified_at?: string | null;
           created_at?: string;
         };
         Relationships: [];

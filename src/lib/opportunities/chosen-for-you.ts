@@ -47,7 +47,8 @@ type Candidate = RankingInput & {
   eligibilityResult: EligibilityResult;
 };
 
-function toEligibilityOpportunityInput(opportunity: Opportunity) {
+/** Exported for reuse by discovery.ts — the same opportunity→eligibility-input mapping, never a second copy. */
+export function toEligibilityOpportunityInput(opportunity: Opportunity) {
   return {
     minGrade: opportunity.min_grade,
     maxGrade: opportunity.max_grade,
@@ -59,8 +60,8 @@ function toEligibilityOpportunityInput(opportunity: Opportunity) {
   };
 }
 
-/** `true`/`false` only when the student expressed a cost preference; `null` (never penalized) otherwise — mirrors matching.ts's own free_only comparison. */
-function computeCostPreferenceMatch(
+/** `true`/`false` only when the student expressed a cost preference; `null` (never penalized) otherwise — mirrors matching.ts's own free_only comparison. Exported for reuse by discovery.ts's ranking of freshly-discovered candidates, so the two never compute this signal two different ways. */
+export function computeCostPreferenceMatch(
   profile: MatchProfileInput,
   opportunity: Opportunity
 ): boolean | null {
@@ -68,8 +69,8 @@ function computeCostPreferenceMatch(
   return opportunity.cost_type === "free";
 }
 
-/** `true`/`false` only when the student expressed a format preference; `null` otherwise — mirrors matching.ts's own virtual/in_person comparison. */
-function computeFormatPreferenceMatch(
+/** `true`/`false` only when the student expressed a format preference; `null` otherwise — mirrors matching.ts's own virtual/in_person comparison. Exported for reuse by discovery.ts. */
+export function computeFormatPreferenceMatch(
   profile: MatchProfileInput,
   opportunity: Opportunity
 ): boolean | null {
@@ -85,8 +86,8 @@ function computeFormatPreferenceMatch(
   return fitsInPerson;
 }
 
-/** A listing counts as having complete information when its deadline, application status, and eligibility criteria have all actually been resolved — never a fabricated signal, just a read of real columns. */
-function hasCompleteInformation(opportunity: Opportunity): boolean {
+/** A listing counts as having complete information when its deadline, application status, and eligibility criteria have all actually been resolved — never a fabricated signal, just a read of real columns. Exported for reuse by discovery.ts. */
+export function hasCompleteInformation(opportunity: Opportunity): boolean {
   return (
     opportunity.deadline_status !== "unknown" &&
     opportunity.application_status !== "unknown" &&

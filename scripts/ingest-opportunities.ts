@@ -1,11 +1,15 @@
 /**
  * Admin-only real-source ingestion runner — the "one safe execution
- * method" required by Milestone 6, expanded in Milestone 7. Never exposed
- * through any Next.js route, Server Action, or client-reachable API: it
- * only runs from a developer/admin's own machine or CI, using the
- * Supabase service-role key, which bypasses `opportunities`'/the new
- * tables' RLS (see scripts/import-opportunities.ts for the identical
- * convention this follows).
+ * method" required by Milestone 6, expanded in Milestone 7. Runs from a
+ * developer/admin's own machine or CI, using the Supabase service-role
+ * key, which bypasses `opportunities`'/the new tables' RLS (see
+ * scripts/import-opportunities.ts for the identical convention this
+ * follows). `runIngestion` itself is also reused by the authenticated
+ * "Find more" Server Action (src/lib/opportunities/discovery-actions.ts,
+ * Milestone 8) for a tightly bounded, rate-limited student-triggered
+ * fresh-discovery pass — that path never runs this script and never
+ * exposes the service-role key to the client, but it does mean the
+ * ingestion pipeline is no longer *exclusively* CLI/CI-triggered.
  *
  * Usage:
  *   npm run ingest:opportunities                        # writes to the database

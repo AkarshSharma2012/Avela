@@ -35,7 +35,8 @@ export type MatchProfileInput = {
   preferences: OpportunityPreferenceKey[];
 };
 
-const GOAL_TO_OPPORTUNITY_TYPE: Partial<Record<GoalValue, Opportunity["opportunity_type"]>> = {
+/** Exported for reuse by discovery-sources.ts's source-selection scoring — kept as the single source of truth rather than a second, driftable copy. */
+export const GOAL_TO_OPPORTUNITY_TYPE: Partial<Record<GoalValue, Opportunity["opportunity_type"]>> = {
   "Find an internship": "internship",
   "Find a summer program": "summer_program",
   "Enter competitions": "competition",
