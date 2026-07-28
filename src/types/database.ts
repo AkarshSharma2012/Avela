@@ -223,6 +223,19 @@ export type RecommendationFeedbackReason =
   | "already_applied"
   | "other";
 
+// Application Action Center
+
+/** See supabase/migrations/20260731000000_application_plans.sql for the check constraint this mirrors. */
+export type ApplicationPlanStatus =
+  | "interested"
+  | "planning"
+  | "preparing"
+  | "ready_to_apply"
+  | "applied"
+  | "accepted"
+  | "rejected"
+  | "withdrawn";
+
 export type Database = {
   public: {
     Tables: {
@@ -935,6 +948,90 @@ export type Database = {
           reason?: RecommendationFeedbackReason | null;
           note?: string | null;
           reminder_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      application_plans: {
+        Row: {
+          id: string;
+          user_id: string;
+          opportunity_id: string;
+          status: ApplicationPlanStatus;
+          target_submit_date: string | null;
+          official_deadline: string | null;
+          notes: string | null;
+          started_at: string;
+          submitted_at: string | null;
+          decision_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          opportunity_id: string;
+          status?: ApplicationPlanStatus;
+          target_submit_date?: string | null;
+          official_deadline?: string | null;
+          notes?: string | null;
+          started_at?: string;
+          submitted_at?: string | null;
+          decision_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          opportunity_id?: string;
+          status?: ApplicationPlanStatus;
+          target_submit_date?: string | null;
+          official_deadline?: string | null;
+          notes?: string | null;
+          started_at?: string;
+          submitted_at?: string | null;
+          decision_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      application_tasks: {
+        Row: {
+          id: string;
+          user_id: string;
+          application_plan_id: string;
+          title: string;
+          description: string | null;
+          due_date: string | null;
+          completed_at: string | null;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          application_plan_id: string;
+          title: string;
+          description?: string | null;
+          due_date?: string | null;
+          completed_at?: string | null;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          application_plan_id?: string;
+          title?: string;
+          description?: string | null;
+          due_date?: string | null;
+          completed_at?: string | null;
+          sort_order?: number;
           created_at?: string;
           updated_at?: string;
         };

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { AlertTriangle, Compass } from "lucide-react";
 
+import { DiscoverMore } from "@/components/opportunities/discover-more";
+import { FindMoreButton } from "@/components/opportunities/find-more-button";
 import { OpportunityCard } from "@/components/opportunities/opportunity-card";
 import { OpportunityFilterForm } from "@/components/opportunities/opportunity-filter-form";
 import { Pagination } from "@/components/opportunities/pagination";
@@ -18,6 +20,7 @@ import {
 import {
   hasActiveFilters,
   parseOpportunityFilters,
+  resolveBrowseNextAction,
   type RawSearchParams,
 } from "@/lib/opportunities/search-params";
 import { createClient } from "@/lib/supabase/server";
@@ -46,6 +49,7 @@ export default async function OpportunitiesPage({
 
   const matchProfileInput = buildMatchProfileInput(profile, onboardingSummary);
   const filtersActive = hasActiveFilters(filters);
+  const nextAction = resolveBrowseNextAction(filters, count);
   const sourceNames = await getOpportunitySourceNames(
     supabase,
     opportunities.map((o) => o.source_id).filter((id): id is string => id !== null)
@@ -121,7 +125,21 @@ export default async function OpportunitiesPage({
                 />
               ))}
             </div>
-            <Pagination filters={filters} totalCount={count} pageSize={PAGE_SIZE} />
+
+            {nextAction.kind === "paginate" && (
+              <Pagination filters={filters} totalCount={count} pageSize={PAGE_SIZE} />
+            )}
+            {nextAction.kind === "find_more" && (
+              <div className="mt-8 flex flex-col items-start gap-3 rounded-xl border border-primary/20 bg-[color-mix(in_oklch,var(--primary),transparent_95%)] px-5 py-4">
+                <p className="text-sm text-foreground">Want to see more opportunities?</p>
+                <FindMoreButton href={nextAction.href} />
+              </div>
+            )}
+            {nextAction.kind === "search_more" && (
+              <div className="mt-8">
+                <DiscoverMore />
+              </div>
+            )}
           </>
         )}
       </div>

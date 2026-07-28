@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { BellRing, HandHelping, ThumbsUp, Undo2, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { startApplicationPlan } from "@/lib/applications/actions";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { DISMISS_REASONS } from "@/lib/opportunities/constants";
 import {
   dismissOpportunity,
-  markHelpMeApply,
   markMoreLikeThis,
   remindMeLater,
   undoRecommendationFeedback,
@@ -46,6 +47,7 @@ function RecommendationFeedbackControls({
   const [showReasons, setShowReasons] = useState(false);
   const [reason, setReason] = useState<RecommendationFeedbackReason | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [planId, setPlanId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function toggleMoreLikeThis() {
@@ -86,8 +88,14 @@ function RecommendationFeedbackControls({
     if (applicationUrl) window.open(applicationUrl, "_blank", "noopener,noreferrer");
     setState((prev) => ({ ...prev, helpMeApply: true }));
     startTransition(async () => {
-      const result = await markHelpMeApply(opportunityId);
-      setAnnouncement(result.error ?? "Noted — good luck with your application.");
+      const result = await startApplicationPlan(opportunityId);
+      if (result.error) {
+        setState((prev) => ({ ...prev, helpMeApply: false }));
+        setAnnouncement(result.error);
+        return;
+      }
+      if (result.planId) setPlanId(result.planId);
+      setAnnouncement("Added to My Applications — good luck!");
     });
   }
 
@@ -169,16 +177,20 @@ function RecommendationFeedbackControls({
           <BellRing aria-hidden="true" className={cn("size-3", state.remindLater && "fill-current")} />
           Remind me later
         </Button>
-        <Button
-          type="button"
-          variant={state.helpMeApply ? "secondary" : "ghost"}
-          size="xs"
-          onClick={handleHelpMeApply}
-          disabled={isPending || state.helpMeApply}
-        >
-          <HandHelping aria-hidden="true" className="size-3" />
-          Help me apply
-        </Button>
+        {state.helpMeApply ? (
+          <Link
+            href={planId ? `/applications/${planId}` : "/applications"}
+            className={cn(buttonVariants({ variant: "secondary", size: "xs" }))}
+          >
+            <HandHelping aria-hidden="true" className="size-3" />
+            Continue application
+          </Link>
+        ) : (
+          <Button type="button" variant="ghost" size="xs" onClick={handleHelpMeApply} disabled={isPending}>
+            <HandHelping aria-hidden="true" className="size-3" />
+            Help me apply
+          </Button>
+        )}
       </div>
 
       {showReasons && (

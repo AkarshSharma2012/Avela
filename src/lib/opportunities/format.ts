@@ -13,6 +13,11 @@ function formatIsoDate(iso: string): string {
   return DATE_FORMATTER.format(new Date(iso));
 }
 
+/** Exported for callers (e.g. application-plan-card.tsx) that need a bare "Aug 1, 2026" rather than one of this file's full sentences like `formatDeadline`'s "Applications due …". */
+export function formatShortDate(iso: string): string {
+  return formatIsoDate(iso);
+}
+
 export function isDeadlinePassed(deadline: string | null, now: Date = new Date()): boolean {
   if (deadline === null) return false;
   return new Date(deadline).getTime() < now.getTime();

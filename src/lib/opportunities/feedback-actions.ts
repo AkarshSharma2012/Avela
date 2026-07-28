@@ -69,10 +69,6 @@ export async function markMoreLikeThis(opportunityId: string): Promise<FeedbackA
   return writeFeedback(opportunityId, { feedbackType: "more_like_this" });
 }
 
-export async function markHelpMeApply(opportunityId: string): Promise<FeedbackActionResult> {
-  return writeFeedback(opportunityId, { feedbackType: "help_me_apply" });
-}
-
 /** Reminder time defaults to one month before the opportunity's own deadline (carrying its time-of-day, per the migration's comment) — falling back to 30 days out when no deadline is known, since "remind me" still needs a concrete time to fire. */
 export async function remindMeLater(opportunityId: string): Promise<FeedbackActionResult> {
   const supabase = await createClient();

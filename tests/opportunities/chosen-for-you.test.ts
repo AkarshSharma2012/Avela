@@ -199,6 +199,19 @@ describe("buildChosenForYou — exclusions", () => {
     expect(batch.additional.some((entry) => entry.opportunity.id === "sample")).toBe(false);
   });
 
+  it("reports 'empty' for a sample-only catalog rather than ever surfacing a sample card as a real match", () => {
+    const opportunities = [
+      strongOpportunity("sample-1", { is_sample: true }),
+      strongOpportunity("sample-2", { is_sample: true }),
+    ];
+
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
+
+    expect(batch.status).toBe("empty");
+    expect(batch.featured).toBeNull();
+    expect(batch.additional).toEqual([]);
+  });
+
   it("excludes an opportunity whose deadline has closed", () => {
     const opportunities = [
       strongOpportunity("open"),

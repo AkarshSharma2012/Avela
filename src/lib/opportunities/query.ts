@@ -65,7 +65,11 @@ export async function listOpportunities(
   const now = options.now ?? new Date();
   const studentState = options.studentState ?? null;
 
-  let query = supabase.from("opportunities").select("*", { count: "exact" }).eq("is_active", true);
+  let query = supabase
+    .from("opportunities")
+    .select("*", { count: "exact" })
+    .eq("is_active", true)
+    .eq("is_sample", false);
 
   if (filters.q) {
     const pattern = `%${sanitizeSearchTerm(filters.q)}%`;
@@ -260,6 +264,7 @@ export async function getOpportunityById(
     .select("*")
     .eq("id", id)
     .eq("is_active", true)
+    .eq("is_sample", false)
     .maybeSingle();
 
   if (error) {
@@ -400,7 +405,8 @@ export async function getSavedOpportunities(
   const { data: opportunities, error: opportunitiesError } = await supabase
     .from("opportunities")
     .select("*")
-    .in("id", ids);
+    .in("id", ids)
+    .eq("is_sample", false);
 
   if (opportunitiesError) {
     console.error(

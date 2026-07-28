@@ -14,9 +14,12 @@ import { FeaturedMatchCard } from "@/components/opportunities/featured-match-car
 import { FindMoreButton } from "@/components/opportunities/find-more-button";
 import { OpportunityCard } from "@/components/opportunities/opportunity-card";
 import type { RecommendationFeedbackState } from "@/components/opportunities/recommendation-feedback-controls";
+import { buttonVariants } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NodeTrack, type TrackNode } from "@/components/ui/node-track";
+import { getApplicationPlans } from "@/lib/applications/repository";
+import { buildDashboardApplicationSummary } from "@/lib/applications/summary";
 import { requireProfile } from "@/lib/auth/dal";
 import { getOnboardingSummary } from "@/lib/onboarding/dal";
 import {
@@ -38,8 +41,10 @@ import {
   getSavedOpportunityIds,
   listOpportunitiesForMatching,
 } from "@/lib/opportunities/query";
+import { formatShortDate } from "@/lib/opportunities/format";
 import { getFirstName } from "@/lib/profile/display";
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 import type { OpportunityPreferenceKey, RecommendationFeedbackType } from "@/types/database";
 import type { Opportunity } from "@/types/opportunity";
 
@@ -179,13 +184,25 @@ export default async function DashboardPage({
 
   const shown = parseShown((await searchParams).shown);
   const supabase = await createClient();
-  const [{ data: candidatePool, error: poolError }, savedIds, feedbackProfile, dismissedOpportunityIds] =
+  const [{ data: candidatePool, error: poolError }, savedIds, feedbackProfile, dismissedOpportunityIds, applicationBundles] =
     await Promise.all([
       listOpportunitiesForMatching(supabase, profile.grade_level, { studentState: profile.state }),
       getSavedOpportunityIds(supabase, profile.id),
       getFeedbackProfileForUser(supabase, profile.id),
       getDismissedOpportunityIds(supabase, profile.id),
+      getApplicationPlans(supabase, profile.id),
     ]);
+
+  const applicationSummary = buildDashboardApplicationSummary(
+    applicationBundles.map((bundle) => ({
+      planId: bundle.plan.id,
+      status: bundle.plan.status,
+      targetSubmitDate: bundle.plan.target_submit_date,
+      officialDeadline: bundle.plan.official_deadline,
+      opportunityTitle: bundle.opportunity.title,
+      tasks: bundle.tasks,
+    }))
+  );
 
   const matchProfileInput = buildMatchProfileInput(profile, onboardingSummary);
   const chosenForYou = buildChosenForYou(candidatePool, matchProfileInput, shown, {
@@ -283,6 +300,47 @@ export default async function DashboardPage({
         </div>
       </section>
 
+      {(applicationSummary.activeCount > 0 || applicationSummary.overdueTaskCount > 0) && (
+        <section aria-labelledby="applications-heading" className="animate-fade-up mt-8">
+          <h2
+            id="applications-heading"
+            className="text-xs font-medium tracking-wide text-primary uppercase"
+          >
+            Applications
+          </h2>
+          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-foreground">
+              <span>
+                <strong className="font-heading text-lg">{applicationSummary.activeCount}</strong>{" "}
+                {applicationSummary.activeCount === 1 ? "active application" : "active applications"}
+              </span>
+              {applicationSummary.overdueTaskCount > 0 && (
+                <span className="text-destructive">
+                  <strong className="font-heading text-lg">{applicationSummary.overdueTaskCount}</strong>{" "}
+                  overdue {applicationSummary.overdueTaskCount === 1 ? "task" : "tasks"}
+                </span>
+              )}
+              {applicationSummary.nearestDeadline && (
+                <span className="text-text-secondary">
+                  Next up: {applicationSummary.nearestDeadline.opportunityTitle} —{" "}
+                  {formatShortDate(applicationSummary.nearestDeadline.date)}
+                </span>
+              )}
+            </div>
+            <Link
+              href={
+                applicationSummary.nearestDeadline
+                  ? `/applications/${applicationSummary.nearestDeadline.planId}`
+                  : "/applications"
+              }
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
+            >
+              Continue application
+            </Link>
+          </div>
+        </section>
+      )}
+
       <section aria-labelledby="discovery-heading" className="animate-fade-up mt-8">
         <h2
           id="discovery-heading"
@@ -356,14 +414,14 @@ export default async function DashboardPage({
                     I found a few more, but they are not as closely matched to your interests and
                     preferences.
                   </p>
-                  <FindMoreButton nextShown={chosenForYou.nextShown} />
+                  <FindMoreButton href={`/dashboard?shown=${chosenForYou.nextShown}`} />
                 </div>
               )}
 
               {chosenForYou.status === "has_more" && chosenForYou.nextShown !== null && (
                 <div className="flex flex-col items-start gap-3 rounded-xl border border-primary/20 bg-[color-mix(in_oklch,var(--primary),transparent_95%)] px-5 py-4">
                   <p className="text-sm text-foreground">Want to see a few more matches?</p>
-                  <FindMoreButton nextShown={chosenForYou.nextShown} />
+                  <FindMoreButton href={`/dashboard?shown=${chosenForYou.nextShown}`} />
                 </div>
               )}
             </>

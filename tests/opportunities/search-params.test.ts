@@ -6,7 +6,9 @@ import {
   filtersToSearchParams,
   hasActiveFilters,
   parseOpportunityFilters,
+  resolveBrowseNextAction,
 } from "@/lib/opportunities/search-params";
+import { PAGE_SIZE } from "@/lib/opportunities/constants";
 
 describe("parseOpportunityFilters", () => {
   it("defaults to empty filters and page 1 when given nothing", () => {
@@ -134,5 +136,39 @@ describe("filtersToSearchParams / buildPageHref", () => {
 
   it("returns the bare path when there are no active filters and page is 1", () => {
     expect(buildPageHref(EMPTY_FILTERS, 1)).toBe("/opportunities");
+  });
+});
+
+describe("resolveBrowseNextAction", () => {
+  it("shows Find more when unfiltered and unseen real catalog rows remain beyond this page", () => {
+    const action = resolveBrowseNextAction(EMPTY_FILTERS, PAGE_SIZE * 2);
+    expect(action).toEqual({ kind: "find_more", href: buildPageHref(EMPTY_FILTERS, 2) });
+  });
+
+  it("shows Search for more once the unfiltered real catalog is fully paged through", () => {
+    const lastPage = { ...EMPTY_FILTERS, page: 2 };
+    const action = resolveBrowseNextAction(lastPage, PAGE_SIZE * 2);
+    expect(action).toEqual({ kind: "search_more" });
+  });
+
+  it("treats an exact single page as exhausted (Search for more), not Find more", () => {
+    const action = resolveBrowseNextAction(EMPTY_FILTERS, PAGE_SIZE);
+    expect(action).toEqual({ kind: "search_more" });
+  });
+
+  it("falls back to classic Pagination whenever any filter narrows the results, regardless of offset", () => {
+    expect(
+      resolveBrowseNextAction({ ...EMPTY_FILTERS, types: ["internship"], page: 1 }, PAGE_SIZE * 5)
+    ).toEqual({ kind: "paginate" });
+
+    expect(
+      resolveBrowseNextAction({ ...EMPTY_FILTERS, q: "robotics", page: 3 }, PAGE_SIZE)
+    ).toEqual({ kind: "paginate" });
+  });
+
+  it("never requires a special query parameter — the default page-1 view (parsed from no params at all) resolves on its own", () => {
+    const defaultFilters = parseOpportunityFilters({});
+    expect(defaultFilters).toEqual(EMPTY_FILTERS);
+    expect(resolveBrowseNextAction(defaultFilters, PAGE_SIZE * 3).kind).toBe("find_more");
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getOpportunityById,
   getSavedOpportunities,
   listOpportunities,
   listOpportunitiesForMatching,
@@ -81,6 +82,14 @@ describe("listOpportunities", () => {
       "or",
       `application_deadline.is.null,application_deadline.gte.${NOW.toISOString()}`,
     ]);
+  });
+
+  it("always excludes sample rows, the same way listOpportunitiesForMatching does, so SAMPLE DATA cards never reach the live Opportunities page", async () => {
+    const { supabase, calls } = createFakeSupabase({ data: [], count: 0, error: null });
+
+    await listOpportunities(supabase, EMPTY_FILTERS, null, { now: NOW });
+
+    expect(callsOf(calls, "eq")).toContainEqual(["eq", "is_sample", false]);
   });
 
   it("does not filter by type/format/cost when none are selected", async () => {
@@ -345,6 +354,18 @@ describe("listOpportunitiesForMatching", () => {
   });
 });
 
+describe("getOpportunityById", () => {
+  it("scopes to active, non-sample opportunities so a sample id never renders for a real user", async () => {
+    const { supabase, calls } = createFakeSupabase({ data: [], count: 0, error: null });
+
+    await getOpportunityById(supabase, "some-id");
+
+    expect(callsOf(calls, "eq")).toContainEqual(["eq", "id", "some-id"]);
+    expect(callsOf(calls, "eq")).toContainEqual(["eq", "is_active", true]);
+    expect(callsOf(calls, "eq")).toContainEqual(["eq", "is_sample", false]);
+  });
+});
+
 describe("getSavedOpportunities", () => {
   function makeOpportunity(id: string): Opportunity {
     return {
@@ -439,11 +460,13 @@ describe("getSavedOpportunities", () => {
         }
         return {
           select: () => ({
-            in: () =>
-              Promise.resolve({
-                data: [makeOpportunity("a"), makeOpportunity("b")],
-                error: null,
-              }),
+            in: () => ({
+              eq: () =>
+                Promise.resolve({
+                  data: [makeOpportunity("a"), makeOpportunity("b")],
+                  error: null,
+                }),
+            }),
           }),
         };
       },
@@ -453,6 +476,43 @@ describe("getSavedOpportunities", () => {
     const entries = await getSavedOpportunities(supabase, "user-1");
 
     expect(entries.map((entry) => entry.opportunity.id)).toEqual(["b", "a"]);
+  });
+
+  it("excludes sample opportunities from the resolved saved list", async () => {
+    const savedRows = [{ opportunity_id: "a", created_at: "2026-01-01T00:00:00Z" }];
+    const opportunityCalls: unknown[][] = [];
+
+    const supabase = {
+      from: (table: string) => {
+        if (table === "saved_opportunities") {
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () => Promise.resolve({ data: savedRows, error: null }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: () => ({
+            in: (...inArgs: unknown[]) => {
+              opportunityCalls.push(["in", ...inArgs]);
+              return {
+                eq: (...eqArgs: unknown[]) => {
+                  opportunityCalls.push(["eq", ...eqArgs]);
+                  return Promise.resolve({ data: [makeOpportunity("a")], error: null });
+                },
+              };
+            },
+          }),
+        };
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+
+    await getSavedOpportunities(supabase, "user-1");
+
+    expect(opportunityCalls).toContainEqual(["eq", "is_sample", false]);
   });
 
   it("returns an empty list when the student has saved nothing", async () => {

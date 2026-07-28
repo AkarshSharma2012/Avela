@@ -3,6 +3,7 @@ import {
   OPPORTUNITY_COST_TYPE_VALUES,
   OPPORTUNITY_FORMAT_VALUES,
   OPPORTUNITY_TYPE_VALUES,
+  PAGE_SIZE,
   type DeadlineWindow,
 } from "@/lib/opportunities/constants";
 import type {
@@ -160,4 +161,34 @@ export function buildPageHref(filters: OpportunityFilters, page: number): string
   const params = filtersToSearchParams({ ...filters, page });
   const query = params.toString();
   return query ? `/opportunities?${query}` : "/opportunities";
+}
+
+/**
+ * What the Opportunities page's bottom-of-list control should be, given
+ * the current filters and how many real (already `is_sample`-excluded, see
+ * `listOpportunities`) rows matched. A student who has narrowed the catalog
+ * with a filter gets the classic numbered `Pagination` they can browse back
+ * and forth through; a student browsing the default, unfiltered catalog
+ * instead gets the same progressive-reveal "Find more opportunities" /
+ * "Search for more opportunities" pattern the dashboard's Chosen for You
+ * feed already uses (find-more-button.tsx / discover-more.tsx) — computed
+ * fresh from `page`/`totalCount` on every render, so it can never be hidden
+ * by a stale pagination offset.
+ */
+export type BrowseNextAction =
+  | { kind: "paginate" }
+  | { kind: "find_more"; href: string }
+  | { kind: "search_more" };
+
+export function resolveBrowseNextAction(
+  filters: OpportunityFilters,
+  totalCount: number
+): BrowseNextAction {
+  if (hasActiveFilters(filters)) return { kind: "paginate" };
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  if (filters.page < totalPages) {
+    return { kind: "find_more", href: buildPageHref(filters, filters.page + 1) };
+  }
+  return { kind: "search_more" };
 }
