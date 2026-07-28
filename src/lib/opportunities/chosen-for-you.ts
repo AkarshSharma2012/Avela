@@ -1,11 +1,12 @@
 import { evaluateEligibility, type EligibilityResult } from "@/lib/opportunities/eligibility-engine";
+import { computeFeedbackSignal, type FeedbackProfile } from "@/lib/opportunities/feedback";
 import {
   matchOpportunity,
   WEEKLY_AVAILABILITY_MAX_HOURS,
   type MatchProfileInput,
   type MatchResult,
 } from "@/lib/opportunities/matching";
-import { rankOpportunities, type RankingInput } from "@/lib/opportunities/ranking";
+import { rankOpportunities, type RankedResult, type RankingInput } from "@/lib/opportunities/ranking";
 import type { Opportunity } from "@/types/opportunity";
 
 /** How many opportunities the very first page shows: one featured plus this many more. */
@@ -95,7 +96,7 @@ export function hasCompleteInformation(opportunity: Opportunity): boolean {
   );
 }
 
-function toCandidate(opportunity: Opportunity, profile: MatchProfileInput): Candidate {
+function toCandidate(opportunity: Opportunity, profile: MatchProfileInput, feedbackProfile?: FeedbackProfile): Candidate {
   const matchResult = matchOpportunity(opportunity, profile);
   const eligibilityResult = evaluateEligibility(toEligibilityOpportunityInput(opportunity), {
     gradeLevel: profile.gradeLevel,
@@ -119,6 +120,7 @@ function toCandidate(opportunity: Opportunity, profile: MatchProfileInput): Cand
     costPreferenceMatch: computeCostPreferenceMatch(profile, opportunity),
     formatPreferenceMatch: computeFormatPreferenceMatch(profile, opportunity),
     hasCompleteInformation: hasCompleteInformation(opportunity),
+    feedbackSignal: feedbackProfile ? computeFeedbackSignal(opportunity.opportunity_type, feedbackProfile) : undefined,
     record: opportunity,
     matchResult,
     eligibilityResult,
@@ -146,14 +148,38 @@ function toEntry(candidate: Candidate): ChosenForYouEntry {
  * `opportunities` should already be the active, non-sample pool (see
  * `listOpportunitiesForMatching`) — `is_sample` is still filtered here too,
  * defensively, so this function is safe to call with any pool.
+ *
+ * `dismissedOpportunityIds` (from `getDismissedOpportunityIds`) excludes
+ * anything this student gave "not for me" feedback on, the same durable
+ * cross-batch exclusion the recommendation_feedback migration exists for
+ * — never resurfaced unless that feedback is explicitly undone. It is
+ * deliberately *not* filtered out of `ranked` before slicing: `shown`/
+ * `nextShown` are a plain offset into that array, and a student can
+ * dismiss something (via the on-page feedback controls) between the
+ * request that minted a `nextShown` value and the request that consumes
+ * it as `shown` — removing dismissed rows first would shrink/shift every
+ * later index, silently desyncing that offset (skipping real unseen
+ * matches, or overshooting into a false "exhausted"/"empty"). Instead,
+ * `ranked`'s indexing stays stable (based only on eligibility/matching,
+ * unaffected by dismissal history) and dismissed entries are skipped
+ * while *walking* the offset, so a `nextShown` handed out before a
+ * dismissal is still valid to resume from after one.
+ * `feedbackProfile` (from `getFeedbackProfileForUser`) is threaded into
+ * ranking only, as the bounded `feedbackSignal` tiebreaker.
  */
 export function buildChosenForYou(
   opportunities: readonly Opportunity[],
   profile: MatchProfileInput,
   shown: number,
-  now: Date = new Date()
+  options: { now?: Date; feedbackProfile?: FeedbackProfile; dismissedOpportunityIds?: ReadonlySet<string> } = {}
 ): ChosenForYouBatch {
-  const candidates = opportunities.filter((opportunity) => !opportunity.is_sample).map((opportunity) => toCandidate(opportunity, profile));
+  const now = options.now ?? new Date();
+  const dismissedIds = options.dismissedOpportunityIds;
+  const isDismissed = (result: RankedResult<Candidate>) => dismissedIds?.has(result.opportunity.id) ?? false;
+
+  const candidates = opportunities
+    .filter((opportunity) => !opportunity.is_sample)
+    .map((opportunity) => toCandidate(opportunity, profile, options.feedbackProfile));
 
   const ranked = rankOpportunities(candidates, now);
   const total = ranked.length;
@@ -165,17 +191,25 @@ export function buildChosenForYou(
   const offset = Math.max(0, shown);
   const isFirstPage = offset === 0;
   const takeCount = isFirstPage ? 1 + INITIAL_ADDITIONAL_COUNT : FIND_MORE_BATCH_SIZE;
-  const batch = ranked.slice(offset, offset + takeCount);
 
-  if (batch.length === 0) {
+  const visible: RankedResult<Candidate>[] = [];
+  let index = offset;
+  while (index < total && visible.length < takeCount) {
+    const candidate = ranked[index];
+    index++;
+    if (isDismissed(candidate)) continue;
+    visible.push(candidate);
+  }
+  const consumed = index;
+
+  if (visible.length === 0) {
     return { featured: null, additional: [], status: "exhausted", nextShown: null };
   }
 
-  const featured = isFirstPage ? toEntry(batch[0].opportunity) : null;
-  const additional = (isFirstPage ? batch.slice(1) : batch).map((result) => toEntry(result.opportunity));
+  const featured = isFirstPage ? toEntry(visible[0].opportunity) : null;
+  const additional = (isFirstPage ? visible.slice(1) : visible).map((result) => toEntry(result.opportunity));
 
-  const consumed = offset + batch.length;
-  const remaining = ranked.slice(consumed);
+  const remaining = ranked.slice(consumed).filter((result) => !isDismissed(result));
 
   let status: ChosenForYouStatus;
   let nextShown: number | null;

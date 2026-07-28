@@ -13,6 +13,7 @@ import { DiscoverMore } from "@/components/opportunities/discover-more";
 import { FeaturedMatchCard } from "@/components/opportunities/featured-match-card";
 import { FindMoreButton } from "@/components/opportunities/find-more-button";
 import { OpportunityCard } from "@/components/opportunities/opportunity-card";
+import type { RecommendationFeedbackState } from "@/components/opportunities/recommendation-feedback-controls";
 import { Chip } from "@/components/ui/chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NodeTrack, type TrackNode } from "@/components/ui/node-track";
@@ -26,6 +27,11 @@ import {
 import type { ChosenForYouEntry } from "@/lib/opportunities/chosen-for-you";
 import { buildChosenForYou } from "@/lib/opportunities/chosen-for-you";
 import { TYPE_LABELS } from "@/lib/opportunities/constants";
+import {
+  getDismissedOpportunityIds,
+  getFeedbackProfileForUser,
+  getFeedbackStateForOpportunities,
+} from "@/lib/opportunities/feedback-repository";
 import { buildMatchProfileInput } from "@/lib/opportunities/matching";
 import {
   getOpportunitySourceNames,
@@ -34,7 +40,7 @@ import {
 } from "@/lib/opportunities/query";
 import { getFirstName } from "@/lib/profile/display";
 import { createClient } from "@/lib/supabase/server";
-import type { OpportunityPreferenceKey } from "@/types/database";
+import type { OpportunityPreferenceKey, RecommendationFeedbackType } from "@/types/database";
 import type { Opportunity } from "@/types/opportunity";
 
 /** Flattened `value → label` lookup built once from the grouped preference options — no separate label map to keep in sync. */
@@ -57,6 +63,15 @@ function parseShown(raw: string | string[] | undefined): number {
   const value = Array.isArray(raw) ? raw[0] : raw;
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+/** Converts the repository's `Set<feedback_type>` into the small typed shape the card components render — see recommendation-feedback-controls.tsx. */
+function toFeedbackState(types: ReadonlySet<RecommendationFeedbackType> | undefined): RecommendationFeedbackState {
+  return {
+    moreLikeThis: types?.has("more_like_this") ?? false,
+    remindLater: types?.has("remind_later") ?? false,
+    helpMeApply: types?.has("help_me_apply") ?? false,
+  };
 }
 
 function ChipList({ items, emptyLabel }: { items: string[]; emptyLabel: string }) {
@@ -164,19 +179,32 @@ export default async function DashboardPage({
 
   const shown = parseShown((await searchParams).shown);
   const supabase = await createClient();
-  const [{ data: candidatePool, error: poolError }, savedIds] = await Promise.all([
-    listOpportunitiesForMatching(supabase, profile.grade_level, { studentState: profile.state }),
-    getSavedOpportunityIds(supabase, profile.id),
-  ]);
+  const [{ data: candidatePool, error: poolError }, savedIds, feedbackProfile, dismissedOpportunityIds] =
+    await Promise.all([
+      listOpportunitiesForMatching(supabase, profile.grade_level, { studentState: profile.state }),
+      getSavedOpportunityIds(supabase, profile.id),
+      getFeedbackProfileForUser(supabase, profile.id),
+      getDismissedOpportunityIds(supabase, profile.id),
+    ]);
 
   const matchProfileInput = buildMatchProfileInput(profile, onboardingSummary);
-  const chosenForYou = buildChosenForYou(candidatePool, matchProfileInput, shown);
+  const chosenForYou = buildChosenForYou(candidatePool, matchProfileInput, shown, {
+    feedbackProfile,
+    dismissedOpportunityIds,
+  });
 
   const chosenSourceIds = [
     ...(chosenForYou.featured ? [chosenForYou.featured.opportunity.source_id] : []),
     ...chosenForYou.additional.map((entry) => entry.opportunity.source_id),
   ].filter((id): id is string => id !== null);
-  const chosenSourceNames = await getOpportunitySourceNames(supabase, chosenSourceIds);
+  const chosenOpportunityIds = [
+    ...(chosenForYou.featured ? [chosenForYou.featured.opportunity.id] : []),
+    ...chosenForYou.additional.map((entry) => entry.opportunity.id),
+  ];
+  const [chosenSourceNames, feedbackState] = await Promise.all([
+    getOpportunitySourceNames(supabase, chosenSourceIds),
+    getFeedbackStateForOpportunities(supabase, profile.id, chosenOpportunityIds),
+  ]);
 
   const insights = buildInsights(
     chosenForYou.featured ? [chosenForYou.featured, ...chosenForYou.additional] : chosenForYou.additional
@@ -281,6 +309,7 @@ export default async function DashboardPage({
                   matchResult={chosenForYou.featured.matchResult}
                   eligibilityResult={chosenForYou.featured.eligibilityResult}
                   isSaved={savedIds.has(chosenForYou.featured.opportunity.id)}
+                  feedbackState={toFeedbackState(feedbackState.get(chosenForYou.featured.opportunity.id))}
                 />
               )}
 
@@ -294,6 +323,7 @@ export default async function DashboardPage({
                       matchResult={entry.matchResult}
                       eligibilityResult={entry.eligibilityResult}
                       showWhyItFits
+                      feedbackState={toFeedbackState(feedbackState.get(entry.opportunity.id))}
                       sourceName={
                         entry.opportunity.source_id
                           ? (chosenSourceNames.get(entry.opportunity.source_id) ?? null)

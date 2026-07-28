@@ -12,6 +12,40 @@ function revalidateOpportunityPages() {
   revalidatePath("/opportunities");
   revalidatePath("/opportunities/[id]", "page");
   revalidatePath("/saved");
+  revalidatePath("/dashboard");
+}
+
+/**
+ * Mirrors a save/unsave into `recommendation_feedback` as a `saved` row —
+ * see that table's migration comment: "kept in sync with
+ * saved_opportunities, not a second copy of that decision".
+ * `saved_opportunities` stays the single source of truth for "is this
+ * saved" (isSaved/getSavedOpportunityIds never read from here); this is
+ * best-effort logging for ranking.ts/discovery-sources.ts only, so a
+ * failure here is swallowed rather than turning a successful save into a
+ * user-facing error.
+ */
+async function syncSavedFeedback(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  opportunityId: string,
+  saved: boolean
+): Promise<void> {
+  const { error } = saved
+    ? await supabase.from("recommendation_feedback").upsert(
+        { user_id: userId, opportunity_id: opportunityId, feedback_type: "saved" },
+        { onConflict: "user_id,opportunity_id,feedback_type", ignoreDuplicates: true }
+      )
+    : await supabase
+        .from("recommendation_feedback")
+        .delete()
+        .eq("user_id", userId)
+        .eq("opportunity_id", opportunityId)
+        .eq("feedback_type", "saved");
+
+  if (error) {
+    console.error("[opportunities] failed to sync saved recommendation feedback:", error.message);
+  }
 }
 
 /**
@@ -39,6 +73,7 @@ export async function saveOpportunity(opportunityId: string): Promise<SaveAction
   });
 
   if (!result.success) return { error: result.error };
+  if (user) await syncSavedFeedback(supabase, user.id, opportunityId, true);
   revalidateOpportunityPages();
   return {};
 }
@@ -57,6 +92,7 @@ export async function unsaveOpportunity(opportunityId: string): Promise<SaveActi
   });
 
   if (!result.success) return { error: result.error };
+  if (user) await syncSavedFeedback(supabase, user.id, opportunityId, false);
   revalidateOpportunityPages();
   return {};
 }

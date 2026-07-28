@@ -9,6 +9,7 @@ import {
 } from "@/lib/opportunities/discovery";
 import { selectDiscoverySources } from "@/lib/opportunities/discovery-sources";
 import { evaluateEligibility } from "@/lib/opportunities/eligibility-engine";
+import type { FeedbackProfile } from "@/lib/opportunities/feedback";
 import type { Logger } from "@/lib/opportunities/ingestion-runner";
 import { matchOpportunity, type MatchProfileInput } from "@/lib/opportunities/matching";
 import type { DnsLookupFn, FetchFn } from "@/lib/opportunities/url-safety";
@@ -54,6 +55,8 @@ export type RecommendationInsert = {
 export type FindMoreDependencies = {
   userId: string;
   profile: MatchProfileInput;
+  /** Optional, bounded ranking tiebreaker built from this student's own recommendation_feedback history — see rankCandidates. */
+  feedbackProfile?: FeedbackProfile;
   /** Every opportunity id already shown to this student — persisted history unioned with whatever the current page already has on screen. Resolving that union is discovery-actions.ts's job, not this function's. */
   alreadyShownOpportunityIds: ReadonlySet<string>;
   batchNumber: number;
@@ -89,7 +92,8 @@ function buildCatalogCandidates(
   pool: readonly Opportunity[],
   profile: MatchProfileInput,
   excluded: ReadonlySet<string>,
-  now: Date
+  now: Date,
+  feedbackProfile?: FeedbackProfile
 ): DiscoveryCandidate[] {
   const candidates: DiscoveryCandidate[] = [];
   for (const opportunity of pool) {
@@ -107,7 +111,7 @@ function buildCatalogCandidates(
     const tier = applyVerificationGate(matchResult.tier, opportunity.verification_label);
     candidates.push({ opportunity, matchResult, eligibilityResult, tier });
   }
-  return rankCandidates(candidates, profile, now);
+  return rankCandidates(candidates, profile, now, feedbackProfile);
 }
 
 /** Only the real profile signals the spec lists — never a fabricated/invented field. */
@@ -145,13 +149,14 @@ function mergeCandidates(
   catalog: DiscoveryCandidate[],
   discovered: DiscoveryCandidate[],
   profile: MatchProfileInput,
-  now: Date
+  now: Date,
+  feedbackProfile?: FeedbackProfile
 ): DiscoveryCandidate[] {
   const byId = new Map<string, DiscoveryCandidate>();
   for (const candidate of [...catalog, ...discovered]) {
     if (!byId.has(candidate.opportunity.id)) byId.set(candidate.opportunity.id, candidate);
   }
-  return rankCandidates([...byId.values()], profile, now);
+  return rankCandidates([...byId.values()], profile, now, feedbackProfile);
 }
 
 /**
@@ -167,7 +172,13 @@ export async function findMoreOpportunities(deps: FindMoreDependencies): Promise
   const minUseful = deps.minUsefulMatches ?? MIN_USEFUL_UNSEEN_MATCHES;
 
   const pool = await deps.listCatalogPool();
-  const catalogCandidates = buildCatalogCandidates(pool, deps.profile, deps.alreadyShownOpportunityIds, now);
+  const catalogCandidates = buildCatalogCandidates(
+    pool,
+    deps.profile,
+    deps.alreadyShownOpportunityIds,
+    now,
+    deps.feedbackProfile
+  );
   const usefulCatalog = catalogCandidates.filter((c) => c.tier !== "limited_fit");
 
   // --- Step A: the catalog alone is enough — never touch the network. ---
@@ -215,7 +226,7 @@ export async function findMoreOpportunities(deps: FindMoreDependencies): Promise
     };
   }
 
-  const selectedSources = selectDiscoverySources(deps.profile);
+  const selectedSources = selectDiscoverySources(deps.profile, { feedbackProfile: deps.feedbackProfile });
 
   const runId = await deps.createDiscoveryRun({
     batchNumber: deps.batchNumber,
@@ -246,6 +257,7 @@ export async function findMoreOpportunities(deps: FindMoreDependencies): Promise
   try {
     discoveryResult = await runFreshDiscoveryImpl({
       profile: deps.profile,
+      feedbackProfile: deps.feedbackProfile,
       excludedOpportunityIds: deps.alreadyShownOpportunityIds,
       sources: selectedSources,
       repository: deps.discoveryRepository,
@@ -274,10 +286,13 @@ export async function findMoreOpportunities(deps: FindMoreDependencies): Promise
 
   await deps.updateDiscoveryRunStatus(runId, "ranking");
 
-  const combined = mergeCandidates(catalogCandidates, discoveryResult.candidates, deps.profile, now).slice(
-    0,
-    deps.limits?.maxRecommendations ?? minUseful
-  );
+  const combined = mergeCandidates(
+    catalogCandidates,
+    discoveryResult.candidates,
+    deps.profile,
+    now,
+    deps.feedbackProfile
+  ).slice(0, deps.limits?.maxRecommendations ?? minUseful);
 
   if (combined.length > 0) {
     await deps.insertRecommendations(toRecommendationInserts(combined, runId, deps.batchNumber));

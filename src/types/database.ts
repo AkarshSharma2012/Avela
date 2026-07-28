@@ -201,6 +201,28 @@ export type StudentDiscoveryRunStatus =
 /** Mirrors matching.ts's `MatchTier` verbatim — duplicated here for the same reason every other enum in this file is (see the extraction-method comment above), not a second competing taxonomy. */
 export type RecommendationTier = "strong_fit" | "possible_fit" | "limited_fit";
 
+// Recommendation Feedback Loop
+
+/** See supabase/migrations/20260730000000_recommendation_feedback.sql for the durable "why" semantics of each value. */
+export type RecommendationFeedbackType =
+  | "dismissed"
+  | "more_like_this"
+  | "saved"
+  | "help_me_apply"
+  | "remind_later";
+
+/** Only ever set on a `dismissed` row — see the migration's check constraint. */
+export type RecommendationFeedbackReason =
+  | "not_interested"
+  | "too_expensive"
+  | "too_far"
+  | "wrong_timing"
+  | "too_competitive"
+  | "wrong_format"
+  | "eligibility_mismatch"
+  | "already_applied"
+  | "other";
+
 export type Database = {
   public: {
     Tables: {
@@ -830,6 +852,7 @@ export type Database = {
       };
       student_opportunity_recommendations: {
         Row: {
+          id: string;
           user_id: string;
           opportunity_id: string;
           discovery_run_id: string | null;
@@ -845,6 +868,7 @@ export type Database = {
           created_at: string;
         };
         Insert: {
+          id?: string;
           user_id: string;
           opportunity_id: string;
           discovery_run_id?: string | null;
@@ -860,6 +884,7 @@ export type Database = {
           created_at?: string;
         };
         Update: {
+          id?: string;
           user_id?: string;
           opportunity_id?: string;
           discovery_run_id?: string | null;
@@ -873,6 +898,45 @@ export type Database = {
           saved_at?: string | null;
           last_verified_at?: string | null;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      recommendation_feedback: {
+        Row: {
+          id: string;
+          user_id: string;
+          opportunity_id: string;
+          recommendation_id: string | null;
+          feedback_type: RecommendationFeedbackType;
+          reason: RecommendationFeedbackReason | null;
+          note: string | null;
+          reminder_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          opportunity_id: string;
+          recommendation_id?: string | null;
+          feedback_type: RecommendationFeedbackType;
+          reason?: RecommendationFeedbackReason | null;
+          note?: string | null;
+          reminder_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          opportunity_id?: string;
+          recommendation_id?: string | null;
+          feedback_type?: RecommendationFeedbackType;
+          reason?: RecommendationFeedbackReason | null;
+          note?: string | null;
+          reminder_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };

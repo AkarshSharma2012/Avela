@@ -4,6 +4,7 @@ import { getCurrentProfile } from "@/lib/auth/dal";
 import { getOnboardingSummary } from "@/lib/onboarding/dal";
 import type { DiscoveryCandidate } from "@/lib/opportunities/discovery";
 import { createDiscoveryServiceRoleClient, createSupabaseDiscoveryRepository } from "@/lib/opportunities/discovery-repository";
+import { getFeedbackProfileForUser } from "@/lib/opportunities/feedback-repository";
 import {
   findMoreOpportunities,
   type FindMoreDependencies,
@@ -153,10 +154,12 @@ export async function findMoreAction(): Promise<FindMoreActionResult> {
   const onboardingSummary = await getOnboardingSummary(profile.id);
   const matchProfileInput = buildMatchProfileInput(profile, onboardingSummary);
 
-  const [{ data: pool, error: poolError }, { data: persisted, error: persistedError }] = await Promise.all([
-    listOpportunitiesForMatching(authClient, profile.grade_level, { studentState: profile.state }),
-    authClient.from("student_opportunity_recommendations").select("opportunity_id").eq("user_id", profile.id),
-  ]);
+  const [{ data: pool, error: poolError }, { data: persisted, error: persistedError }, feedbackProfile] =
+    await Promise.all([
+      listOpportunitiesForMatching(authClient, profile.grade_level, { studentState: profile.state }),
+      authClient.from("student_opportunity_recommendations").select("opportunity_id").eq("user_id", profile.id),
+      getFeedbackProfileForUser(authClient, profile.id),
+    ]);
   if (poolError) return { ok: false, message: poolError };
   if (persistedError) {
     return { ok: false, message: "Couldn't load your recommendation history — please try again." };
@@ -182,6 +185,7 @@ export async function findMoreAction(): Promise<FindMoreActionResult> {
     outcome = await findMoreOpportunities({
       userId: profile.id,
       profile: matchProfileInput,
+      feedbackProfile,
       alreadyShownOpportunityIds,
       batchNumber,
       discoveryRepository,

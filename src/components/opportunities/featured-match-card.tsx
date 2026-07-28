@@ -13,6 +13,10 @@ import type { ReactNode } from "react";
 
 import { EligibilityBadge } from "@/components/opportunities/eligibility-badge";
 import { MatchBadge } from "@/components/opportunities/match-badge";
+import {
+  RecommendationFeedbackControls,
+  type RecommendationFeedbackState,
+} from "@/components/opportunities/recommendation-feedback-controls";
 import { SaveButton } from "@/components/opportunities/save-button";
 import { VerificationBadge } from "@/components/opportunities/verification-badge";
 import { Chip } from "@/components/ui/chip";
@@ -65,16 +69,25 @@ function DataBlock({
  * "why this was picked" explanation is the engines' own transparent
  * reasons, never a generated summary.
  */
+const DEFAULT_FEEDBACK_STATE: RecommendationFeedbackState = {
+  moreLikeThis: false,
+  remindLater: false,
+  helpMeApply: false,
+};
+
 function FeaturedMatchCard({
   opportunity,
   matchResult,
   eligibilityResult,
   isSaved,
+  feedbackState = DEFAULT_FEEDBACK_STATE,
 }: {
   opportunity: Opportunity;
   matchResult: MatchResult;
   eligibilityResult: EligibilityResult;
   isSaved: boolean;
+  /** This student's prior recommendation_feedback on this exact opportunity — see OpportunityCard's identical prop. */
+  feedbackState?: RecommendationFeedbackState;
 }) {
   const ageRange = formatAgeRange(opportunity.age_min, opportunity.age_max);
   const stipend = formatMoney(opportunity.stipend_amount);
@@ -178,6 +191,12 @@ function FeaturedMatchCard({
           </Link>
           <SaveButton opportunityId={opportunity.id} initiallySaved={isSaved} size="default" />
         </div>
+
+        <RecommendationFeedbackControls
+          opportunityId={opportunity.id}
+          initialState={feedbackState}
+          applicationUrl={opportunity.application_url}
+        />
       </div>
     </article>
   );

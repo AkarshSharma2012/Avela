@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildChosenForYou } from "@/lib/opportunities/chosen-for-you";
+import { buildFeedbackProfile } from "@/lib/opportunities/feedback";
 import type { MatchProfileInput } from "@/lib/opportunities/matching";
 import type { Opportunity } from "@/types/opportunity";
 
@@ -142,7 +143,7 @@ describe("buildChosenForYou — featured selection", () => {
       weakOpportunity("weak"),
     ];
 
-    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     expect(batch.featured?.opportunity.id).toBe("strong");
     expect(batch.featured?.matchResult.tier).toBe("strong_fit");
@@ -157,7 +158,7 @@ describe("buildChosenForYou — featured selection", () => {
       strongOpportunity("e"),
     ];
 
-    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     expect(batch.featured).not.toBeNull();
     expect(batch.additional).toHaveLength(3);
@@ -168,7 +169,7 @@ describe("buildChosenForYou — honesty about weaker matches", () => {
   it("labels a limited-fit result as limited_fit, never disguised as a stronger tier", () => {
     const opportunities = [strongOpportunity("strong"), weakOpportunity("weak")];
 
-    const batch = buildChosenForYou(opportunities, WEAK_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, WEAK_PROFILE, 0, { now: NOW });
 
     const weakEntry = batch.additional.find((entry) => entry.opportunity.id === "weak");
     expect(weakEntry?.matchResult.tier).toBe("limited_fit");
@@ -178,7 +179,7 @@ describe("buildChosenForYou — honesty about weaker matches", () => {
   it("features the best-available match honestly labeled limited_fit when nothing stronger exists", () => {
     const opportunities = [weakOpportunity("only")];
 
-    const batch = buildChosenForYou(opportunities, WEAK_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, WEAK_PROFILE, 0, { now: NOW });
 
     expect(batch.featured?.opportunity.id).toBe("only");
     expect(batch.featured?.matchResult.tier).toBe("limited_fit");
@@ -192,7 +193,7 @@ describe("buildChosenForYou — exclusions", () => {
       strongOpportunity("real"),
     ];
 
-    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     expect(batch.featured?.opportunity.id).toBe("real");
     expect(batch.additional.some((entry) => entry.opportunity.id === "sample")).toBe(false);
@@ -204,7 +205,7 @@ describe("buildChosenForYou — exclusions", () => {
       strongOpportunity("closed", { deadline_status: "closed" }),
     ];
 
-    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     const ids = [batch.featured?.opportunity.id, ...batch.additional.map((e) => e.opportunity.id)];
     expect(ids).not.toContain("closed");
@@ -216,7 +217,7 @@ describe("buildChosenForYou — exclusions", () => {
       strongOpportunity("out-of-range", { min_grade: 1, max_grade: 3 }),
     ];
 
-    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     const ids = [batch.featured?.opportunity.id, ...batch.additional.map((e) => e.opportunity.id)];
     expect(ids).not.toContain("out-of-range");
@@ -233,8 +234,8 @@ describe("buildChosenForYou — deterministic ordering", () => {
       strongOpportunity("e"),
     ];
 
-    const first = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
-    const second = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const first = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
+    const second = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     const idsOf = (batch: typeof first) => [
       batch.featured?.opportunity.id,
@@ -250,11 +251,11 @@ describe("buildChosenForYou — Find more pagination", () => {
     const opportunities = Array.from({ length: 10 }, (_, i) => strongOpportunity(`o${i}`));
 
     const seen: string[] = [];
-    let batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    let batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
     seen.push(...(batch.featured ? [batch.featured.opportunity.id] : []), ...batch.additional.map((e) => e.opportunity.id));
 
     while (batch.nextShown !== null) {
-      batch = buildChosenForYou(opportunities, STRONG_PROFILE, batch.nextShown, NOW);
+      batch = buildChosenForYou(opportunities, STRONG_PROFILE, batch.nextShown, { now: NOW });
       seen.push(...(batch.featured ? [batch.featured.opportunity.id] : []), ...batch.additional.map((e) => e.opportunity.id));
     }
 
@@ -265,17 +266,17 @@ describe("buildChosenForYou — Find more pagination", () => {
   it("preserves the same relative order across batches as a single unpaginated pass", () => {
     const opportunities = Array.from({ length: 8 }, (_, i) => strongOpportunity(`o${i}`));
 
-    const firstPage = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const firstPage = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
     const idsPage1 = [
       firstPage.featured!.opportunity.id,
       ...firstPage.additional.map((e) => e.opportunity.id),
     ];
-    const secondPage = buildChosenForYou(opportunities, STRONG_PROFILE, firstPage.nextShown!, NOW);
+    const secondPage = buildChosenForYou(opportunities, STRONG_PROFILE, firstPage.nextShown!, { now: NOW });
     const idsPage2 = secondPage.additional.map((e) => e.opportunity.id);
 
     // Re-requesting the same offsets again must reproduce the exact same slices.
-    const firstPageAgain = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
-    const secondPageAgain = buildChosenForYou(opportunities, STRONG_PROFILE, firstPage.nextShown!, NOW);
+    const firstPageAgain = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
+    const secondPageAgain = buildChosenForYou(opportunities, STRONG_PROFILE, firstPage.nextShown!, { now: NOW });
 
     expect([
       firstPageAgain.featured!.opportunity.id,
@@ -285,9 +286,108 @@ describe("buildChosenForYou — Find more pagination", () => {
   });
 });
 
+describe("buildChosenForYou — recommendation feedback", () => {
+  it("excludes an opportunity the student dismissed, even a perfect match", () => {
+    const opportunities = [strongOpportunity("dismissed"), strongOpportunity("kept")];
+
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, {
+      now: NOW,
+      dismissedOpportunityIds: new Set(["dismissed"]),
+    });
+
+    const ids = [batch.featured?.opportunity.id, ...batch.additional.map((e) => e.opportunity.id)];
+    expect(ids).not.toContain("dismissed");
+    expect(ids).toContain("kept");
+  });
+
+  it("features a boosted type over an otherwise-tied one that would win on id alone", () => {
+    // "a-neutral" sorts first alphabetically, so this only passes if the
+    // feedback signal — not the id tiebreak — decided the order.
+    const opportunities = [
+      strongOpportunity("a-neutral", { opportunity_type: "internship" }),
+      strongOpportunity("z-boosted", { opportunity_type: "research" }),
+    ];
+    const feedbackProfile = buildFeedbackProfile([{ feedbackType: "more_like_this", opportunityType: "research" }]);
+
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW, feedbackProfile });
+
+    expect(batch.featured?.opportunity.id).toBe("z-boosted");
+  });
+});
+
+describe("buildChosenForYou — regression: dismissing never desyncs Find More pagination", () => {
+  it("still reports 'has_more' (and a usable nextShown) on the first page when unseen catalog results remain and nothing is dismissed", () => {
+    const opportunities = Array.from({ length: 8 }, (_, i) => strongOpportunity(`o${i}`));
+
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, {
+      now: NOW,
+      dismissedOpportunityIds: new Set(),
+    });
+
+    expect(batch.status).toBe("has_more");
+    expect(batch.nextShown).not.toBeNull();
+  });
+
+  it("reports 'exhausted' (fresh-discovery search, not nothing) once every real match has been shown", () => {
+    const opportunities = [strongOpportunity("a"), strongOpportunity("b")];
+
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
+
+    expect(batch.status).toBe("exhausted");
+  });
+
+  it("keeps a 'nextShown' minted before a dismissal valid to resume from after it — no gap, no repeat, no premature exhaustion", () => {
+    // 10 stably-ranked opportunities: o0..o9. First page shows o0..o3
+    // (offset 0) and hands back nextShown = 4.
+    const opportunities = Array.from({ length: 10 }, (_, i) => strongOpportunity(`o${i}`));
+    const firstPage = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
+    expect(firstPage.status).toBe("has_more");
+    const nextShown = firstPage.nextShown!;
+
+    // Between page loads, the student dismisses one of the *already-seen*
+    // opportunities via the new feedback controls (o1) — this must never
+    // shift the meaning of the nextShown value the "Find more" link
+    // already has queued up.
+    const dismissedOpportunityIds = new Set(["o1"]);
+    const secondPage = buildChosenForYou(opportunities, STRONG_PROFILE, nextShown, {
+      now: NOW,
+      dismissedOpportunityIds,
+    });
+
+    expect(secondPage.status).not.toBe("empty");
+    const secondIds = secondPage.additional.map((e) => e.opportunity.id);
+    // Nothing already shown on page one (o0-o3) repeats...
+    expect(secondIds.some((id) => ["o0", "o1", "o2", "o3"].includes(id))).toBe(false);
+    // ...the dismissed one never appears...
+    expect(secondIds).not.toContain("o1");
+    // ...and a real unseen match (o4) isn't silently skipped over.
+    expect(secondIds).toContain("o4");
+  });
+
+  it("skips a just-dismissed *unseen* opportunity without leaving a gap or hiding the ones after it", () => {
+    const opportunities = Array.from({ length: 8 }, (_, i) => strongOpportunity(`o${i}`));
+    const firstPage = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
+    const nextShown = firstPage.nextShown!;
+
+    // o4 (the very next unseen item) gets dismissed before "Find more" is clicked.
+    const withoutDismissal = buildChosenForYou(opportunities, STRONG_PROFILE, nextShown, { now: NOW });
+    const withDismissal = buildChosenForYou(opportunities, STRONG_PROFILE, nextShown, {
+      now: NOW,
+      dismissedOpportunityIds: new Set(["o4"]),
+    });
+
+    expect(withoutDismissal.additional.map((e) => e.opportunity.id)).toContain("o4");
+    const dismissedIds = withDismissal.additional.map((e) => e.opportunity.id);
+    expect(dismissedIds).not.toContain("o4");
+    // The batch still backfills to full size from further down the list
+    // rather than coming back short.
+    expect(dismissedIds.length).toBe(withoutDismissal.additional.length);
+  });
+});
+
 describe("buildChosenForYou — exhausted and broader-results states", () => {
   it("reports 'empty' when there is no eligible opportunity at all", () => {
-    const batch = buildChosenForYou([], STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou([], STRONG_PROFILE, 0, { now: NOW });
 
     expect(batch.status).toBe("empty");
     expect(batch.featured).toBeNull();
@@ -298,7 +398,7 @@ describe("buildChosenForYou — exhausted and broader-results states", () => {
   it("reports 'exhausted' once the entire pool has already been shown", () => {
     const opportunities = [strongOpportunity("a"), strongOpportunity("b")];
 
-    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     expect(batch.status).toBe("exhausted");
     expect(batch.nextShown).toBeNull();
@@ -313,12 +413,12 @@ describe("buildChosenForYou — exhausted and broader-results states", () => {
       weakOpportunity("broad"),
     ];
 
-    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     expect(batch.status).toBe("only_broader_remaining");
     expect(batch.nextShown).toBe(4);
 
-    const next = buildChosenForYou(opportunities, STRONG_PROFILE, batch.nextShown!, NOW);
+    const next = buildChosenForYou(opportunities, STRONG_PROFILE, batch.nextShown!, { now: NOW });
     expect(next.additional.map((e) => e.opportunity.id)).toEqual(["broad"]);
     expect(next.additional[0].matchResult.tier).toBe("limited_fit");
   });
@@ -326,7 +426,7 @@ describe("buildChosenForYou — exhausted and broader-results states", () => {
   it("reports 'has_more' when a stronger match still remains in a later batch", () => {
     const opportunities = Array.from({ length: 6 }, (_, i) => strongOpportunity(`o${i}`));
 
-    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, NOW);
+    const batch = buildChosenForYou(opportunities, STRONG_PROFILE, 0, { now: NOW });
 
     expect(batch.status).toBe("has_more");
     expect(batch.nextShown).toBe(4);

@@ -6,6 +6,7 @@ import {
   scoreDiscoverySources,
   selectDiscoverySources,
 } from "@/lib/opportunities/discovery-sources";
+import { buildFeedbackProfile } from "@/lib/opportunities/feedback";
 import type { MatchProfileInput } from "@/lib/opportunities/matching";
 
 function makeProfile(overrides: Partial<MatchProfileInput> = {}): MatchProfileInput {
@@ -64,6 +65,32 @@ describe("scoreDiscoverySources", () => {
     for (let i = 1; i < scored.length; i++) {
       expect(scored[i - 1].score).toBeGreaterThanOrEqual(scored[i].score);
     }
+  });
+});
+
+describe("scoreDiscoverySources — recommendation feedback", () => {
+  it("can pull an otherwise-unscored source over the inclusion threshold", () => {
+    const profile = makeProfile({ interests: ["Visual Arts"] });
+    const withoutFeedback = scoreDiscoverySources(profile);
+    expect(withoutFeedback.some((s) => s.source.key === "regeneron-sts")).toBe(false);
+
+    const feedbackProfile = buildFeedbackProfile([{ feedbackType: "more_like_this", opportunityType: "competition" }]);
+    const withFeedback = scoreDiscoverySources(profile, feedbackProfile);
+    const boosted = withFeedback.find((s) => s.source.key === "regeneron-sts");
+    expect(boosted).toBeDefined();
+    expect(boosted!.score).toBeGreaterThan(0);
+    expect(boosted!.reasons.some((r) => r.includes("responded well"))).toBe(true);
+  });
+
+  it("reduces (but never eliminates outright) an already-qualified source's score", () => {
+    const profile = makeProfile({ interests: ["Technology"] });
+    const withoutFeedback = scoreDiscoverySources(profile).find((s) => s.source.key === "nist-ship")!;
+
+    const feedbackProfile = buildFeedbackProfile([{ feedbackType: "dismissed", opportunityType: "internship" }]);
+    const withFeedback = scoreDiscoverySources(profile, feedbackProfile).find((s) => s.source.key === "nist-ship")!;
+
+    expect(withFeedback).toBeDefined();
+    expect(withFeedback.score).toBeLessThan(withoutFeedback.score);
   });
 });
 

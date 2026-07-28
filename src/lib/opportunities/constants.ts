@@ -5,6 +5,7 @@ import type {
   OpportunityFormat,
   OpportunityType,
   OpportunityVerificationStatus,
+  RecommendationFeedbackReason,
 } from "@/types/database";
 
 export const OPPORTUNITY_TYPES: readonly { value: OpportunityType; label: string }[] = [
@@ -105,6 +106,20 @@ export type DiscoveryFilterToggle = {
   paramName: string;
   label: string;
 };
+
+// Recommendation Feedback Loop
+
+export const DISMISS_REASONS: readonly { value: RecommendationFeedbackReason; label: string }[] = [
+  { value: "not_interested", label: "Not interested" },
+  { value: "too_expensive", label: "Too expensive" },
+  { value: "too_far", label: "Too far away" },
+  { value: "wrong_timing", label: "Bad timing" },
+  { value: "too_competitive", label: "Too competitive" },
+  { value: "wrong_format", label: "Wrong format" },
+  { value: "eligibility_mismatch", label: "I might not be eligible" },
+  { value: "already_applied", label: "Already applied" },
+  { value: "other", label: "Other" },
+];
 
 export const DISCOVERY_FILTER_TOGGLES: readonly DiscoveryFilterToggle[] = [
   { value: "verifiedOnly", paramName: "verified", label: "Verified only" },

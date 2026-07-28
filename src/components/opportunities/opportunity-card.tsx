@@ -3,6 +3,10 @@ import { ArrowRight, Lightbulb, TriangleAlert } from "lucide-react";
 
 import { EligibilityBadge } from "@/components/opportunities/eligibility-badge";
 import { MatchBadge } from "@/components/opportunities/match-badge";
+import {
+  RecommendationFeedbackControls,
+  type RecommendationFeedbackState,
+} from "@/components/opportunities/recommendation-feedback-controls";
 import { SaveButton } from "@/components/opportunities/save-button";
 import { VerificationBadge } from "@/components/opportunities/verification-badge";
 import { Chip } from "@/components/ui/chip";
@@ -27,6 +31,12 @@ const TIER_ACCENT: Record<MatchTier, string> = {
   limited_fit: "border-l-border",
 };
 
+const DEFAULT_FEEDBACK_STATE: RecommendationFeedbackState = {
+  moreLikeThis: false,
+  remindLater: false,
+  helpMeApply: false,
+};
+
 function OpportunityCard({
   opportunity,
   isSaved,
@@ -34,6 +44,7 @@ function OpportunityCard({
   eligibilityResult,
   sourceName = null,
   showWhyItFits = false,
+  feedbackState = DEFAULT_FEEDBACK_STATE,
 }: {
   opportunity: Opportunity;
   isSaved: boolean;
@@ -43,6 +54,8 @@ function OpportunityCard({
   sourceName?: string | null;
   /** Surfaces the engine's own top match reason in a small labeled block. Off by default so existing pages (Opportunities, Saved) keep their current density; the dashboard's "Chosen for You" cards opt in. Never shown for a limited_fit result, where the top "reason" is actually a shortfall, not something to frame as "why this fits". */
   showWhyItFits?: boolean;
+  /** This student's prior recommendation_feedback on this exact opportunity — same opt-in as `showWhyItFits`, since feedback only makes sense for a personalized recommendation, not a plain browse/saved listing. */
+  feedbackState?: RecommendationFeedbackState;
 }) {
   const showUncertaintyWarning =
     opportunity.deadline_status === "unknown" || eligibilityResult.status === "unclear";
@@ -123,6 +136,14 @@ function OpportunityCard({
         </Link>
         <SaveButton opportunityId={opportunity.id} initiallySaved={isSaved} />
       </div>
+
+      {showWhyItFits && (
+        <RecommendationFeedbackControls
+          opportunityId={opportunity.id}
+          initialState={feedbackState}
+          applicationUrl={opportunity.application_url}
+        />
+      )}
     </article>
   );
 }

@@ -7,6 +7,7 @@ import { createRegeneronStsAdapter, REGENERON_STS_SOURCE } from "@/lib/opportuni
 import type { OpportunitySourceAdapter } from "@/lib/opportunities/adapters/types";
 import { createWaPageProgramAdapter, WA_PAGE_PROGRAM_SOURCE } from "@/lib/opportunities/adapters/wa-page-program-adapter";
 import { createYoungArtsAdapter, YOUNGARTS_SOURCE } from "@/lib/opportunities/adapters/youngarts-adapter";
+import type { FeedbackProfile } from "@/lib/opportunities/feedback";
 import { GOAL_TO_OPPORTUNITY_TYPE, type MatchProfileInput } from "@/lib/opportunities/matching";
 import type { DnsLookupFn, FetchFn } from "@/lib/opportunities/url-safety";
 import type {
@@ -168,7 +169,7 @@ export type ScoredDiscoverySource = {
  * missing preferences" — there's nothing to score relevance against),
  * not a default/fallback list.
  */
-export function scoreDiscoverySources(profile: MatchProfileInput): ScoredDiscoverySource[] {
+export function scoreDiscoverySources(profile: MatchProfileInput, feedbackProfile?: FeedbackProfile): ScoredDiscoverySource[] {
   if (profile.interests.length === 0 && profile.goals.length === 0) return [];
 
   const goalTypes = new Set(
@@ -199,6 +200,24 @@ export function scoreDiscoverySources(profile: MatchProfileInput): ScoredDiscove
         reasons.push("Open to students regardless of interest area");
       }
 
+      // Bounded feedback nudge — at most ±1, applied after the base score
+      // is computed, never enough on its own to pull in a source that had
+      // zero interest/goal signal to begin with (see the `score > 0`
+      // filter below, which this can help a marginal source clear but
+      // never bypass entirely).
+      if (feedbackProfile) {
+        const feedbackScore = source.relevantTypes.reduce(
+          (sum, type) => sum + (feedbackProfile.get(type) ?? 0),
+          0
+        );
+        if (feedbackScore > 0) {
+          score += 1;
+          reasons.push("You've responded well to opportunities like this before");
+        } else if (feedbackScore < 0 && score > 0) {
+          score -= 1;
+        }
+      }
+
       return { source, score, reasons };
     })
     .filter(({ source, score }) => score > 0 || source.interestTags.length === 0)
@@ -208,10 +227,10 @@ export function scoreDiscoverySources(profile: MatchProfileInput): ScoredDiscove
 /** Picks the top-scoring sources, capped at `maxSources` (the spec's 3-5 range; defaults to 4). */
 export function selectDiscoverySources(
   profile: MatchProfileInput,
-  options: { maxSources?: number } = {}
+  options: { maxSources?: number; feedbackProfile?: FeedbackProfile } = {}
 ): DiscoverySourceDefinition[] {
   const maxSources = options.maxSources ?? MAX_DISCOVERY_SOURCES;
-  return scoreDiscoverySources(profile)
+  return scoreDiscoverySources(profile, options.feedbackProfile)
     .slice(0, maxSources)
     .map(({ source }) => source);
 }

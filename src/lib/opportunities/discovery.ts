@@ -7,6 +7,7 @@ import {
 } from "@/lib/opportunities/chosen-for-you";
 import type { DiscoverySourceDefinition, DiscoverySourceKey } from "@/lib/opportunities/discovery-sources";
 import { evaluateEligibility, type EligibilityResult } from "@/lib/opportunities/eligibility-engine";
+import { computeFeedbackSignal, type FeedbackProfile } from "@/lib/opportunities/feedback";
 import type { IngestionRepository } from "@/lib/opportunities/ingestion-repository";
 import { consoleLogger, runIngestion, type IngestionSourceConfig, type Logger } from "@/lib/opportunities/ingestion-runner";
 import {
@@ -205,7 +206,7 @@ async function processOneSource(params: {
   };
 }
 
-function toRankingInput(candidate: DiscoveryCandidate, profile: MatchProfileInput): RankingInput {
+function toRankingInput(candidate: DiscoveryCandidate, profile: MatchProfileInput, feedbackProfile?: FeedbackProfile): RankingInput {
   const studentMaxWeeklyHours =
     profile.weeklyAvailability !== null ? WEEKLY_AVAILABILITY_MAX_HOURS[profile.weeklyAvailability] : null;
 
@@ -222,6 +223,9 @@ function toRankingInput(candidate: DiscoveryCandidate, profile: MatchProfileInpu
     costPreferenceMatch: computeCostPreferenceMatch(profile, candidate.opportunity),
     formatPreferenceMatch: computeFormatPreferenceMatch(profile, candidate.opportunity),
     hasCompleteInformation: hasCompleteInformation(candidate.opportunity),
+    feedbackSignal: feedbackProfile
+      ? computeFeedbackSignal(candidate.opportunity.opportunity_type, feedbackProfile)
+      : undefined,
   };
 }
 
@@ -229,11 +233,12 @@ function toRankingInput(candidate: DiscoveryCandidate, profile: MatchProfileInpu
 export function rankCandidates(
   candidates: DiscoveryCandidate[],
   profile: MatchProfileInput,
-  now: Date
+  now: Date,
+  feedbackProfile?: FeedbackProfile
 ): DiscoveryCandidate[] {
   const byId = new Map(candidates.map((c) => [c.opportunity.id, c]));
   const ranked = rankOpportunities(
-    candidates.map((c) => toRankingInput(c, profile)),
+    candidates.map((c) => toRankingInput(c, profile, feedbackProfile)),
     now
   );
   return ranked.map((result) => byId.get(result.opportunity.id)!);
@@ -241,6 +246,8 @@ export function rankCandidates(
 
 export type RunFreshDiscoveryParams = {
   profile: MatchProfileInput;
+  /** Optional, bounded ranking tiebreaker built from this student's own recommendation_feedback history — see rankCandidates. */
+  feedbackProfile?: FeedbackProfile;
   /** Every opportunity id the student has already been shown — from the persisted `student_opportunity_recommendations` table, unioned with whatever the current page already rendered. Never repeated. */
   excludedOpportunityIds: ReadonlySet<string>;
   /** Already selected via `selectDiscoverySources` — this function never chooses sources itself. */
@@ -365,7 +372,7 @@ export async function runFreshDiscovery(params: RunFreshDiscoveryParams): Promis
     }
   }
 
-  const ranked = rankCandidates(candidates, params.profile, now).slice(0, limits.maxRecommendations);
+  const ranked = rankCandidates(candidates, params.profile, now, params.feedbackProfile).slice(0, limits.maxRecommendations);
   const attemptedOutcomes = sourceOutcomes.filter((o) => o.status !== "skipped_budget");
 
   return {

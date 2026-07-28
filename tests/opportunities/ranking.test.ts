@@ -118,6 +118,39 @@ describe("rankOpportunities — priority order", () => {
     expect(results.map((r) => r.opportunity.id)).toEqual(["complete", "incomplete"]);
   });
 
+  it("ranks a boosted result above a neutral one, all else equal", () => {
+    const results = rankOpportunities(
+      [
+        makeInput("neutral", { feedbackSignal: "neutral" }),
+        makeInput("boosted", { feedbackSignal: "boost" }),
+      ],
+      NOW
+    );
+    expect(results.map((r) => r.opportunity.id)).toEqual(["boosted", "neutral"]);
+  });
+
+  it("ranks a penalized result below an undefined (neutral) one, all else equal", () => {
+    const results = rankOpportunities(
+      [
+        makeInput("penalized", { feedbackSignal: "penalize" }),
+        makeInput("unset"),
+      ],
+      NOW
+    );
+    expect(results.map((r) => r.opportunity.id)).toEqual(["unset", "penalized"]);
+  });
+
+  it("never lets feedbackSignal override a stronger match tier — it's the last tiebreaker", () => {
+    const results = rankOpportunities(
+      [
+        makeInput("limited-boosted", { matchTier: "limited_fit", feedbackSignal: "boost" }),
+        makeInput("strong-penalized", { matchTier: "strong_fit", feedbackSignal: "penalize" }),
+      ],
+      NOW
+    );
+    expect(results.map((r) => r.opportunity.id)).toEqual(["strong-penalized", "limited-boosted"]);
+  });
+
   it("assigns sequential ranks starting at 1 and includes a non-empty explanation", () => {
     const results = rankOpportunities([makeInput("a"), makeInput("b")], NOW);
     expect(results.map((r) => r.rank)).toEqual([1, 2]);

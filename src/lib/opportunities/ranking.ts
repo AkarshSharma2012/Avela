@@ -20,6 +20,8 @@ export type RankingInput = {
   costPreferenceMatch: boolean | null;
   formatPreferenceMatch: boolean | null;
   hasCompleteInformation: boolean;
+  /** From recommendation_feedback (see feedback.ts's computeFeedbackSignal) — `undefined`/`"neutral"` when no feedback history exists yet. Deliberately the very last tiebreaker below: it can nudge otherwise-equal results, never override eligibility, verification, accepting-status, or match tier. */
+  feedbackSignal?: "boost" | "neutral" | "penalize";
 };
 
 export type RankedResult<T extends RankingInput> = {
@@ -63,6 +65,7 @@ function buildSortKey(input: RankingInput, now: Date): number[] {
   const costFormatRank =
     input.costPreferenceMatch === false || input.formatPreferenceMatch === false ? 1 : 0;
   const completeInfoRank = input.hasCompleteInformation ? 0 : 1;
+  const feedbackRank = { boost: 0, neutral: 1, penalize: 2 }[input.feedbackSignal ?? "neutral"];
 
   return [
     eligibilityRank,
@@ -73,6 +76,7 @@ function buildSortKey(input: RankingInput, now: Date): number[] {
     commitmentRank,
     costFormatRank,
     completeInfoRank,
+    feedbackRank,
   ];
 }
 
@@ -92,6 +96,9 @@ function explain(input: RankingInput): string[] {
   if (input.matchTier === "strong_fit") explanation.push("Strong profile match");
   if (input.deadlineStatus === "open" && input.applicationDeadline) {
     explanation.push("Deadline approaching");
+  }
+  if (input.feedbackSignal === "boost") {
+    explanation.push("Similar to opportunities you've responded well to");
   }
   if (explanation.length === 0) explanation.push("Meets your basic search criteria");
   return explanation;
