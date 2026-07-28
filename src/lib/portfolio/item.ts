@@ -6,9 +6,11 @@
  * client-supplied one.
  */
 
+import { normalizeGithubUsername } from "@/lib/osint/github-identity";
 import {
   normalizeSkills,
   normalizeTags,
+  validateGithubUsername,
   validateHoursPerWeek,
   validateItemCurrentEnd,
   validateItemDateRange,
@@ -40,6 +42,8 @@ export type PortfolioItemFields = {
   skills?: string[];
   tags?: string[];
   url?: string | null;
+  /** Connected GitHub identity for this item's repository (any format github-identity.ts accepts) — normalized before it's ever stored. */
+  githubUsername?: string | null;
 };
 
 export type UpdatePortfolioItemInput = Partial<PortfolioItemFields> & {
@@ -72,6 +76,10 @@ function validateItemFields(input: Partial<PortfolioItemFields>): string | null 
     const error = validateItemUrl(input.url ?? null);
     if (error) return error;
   }
+  if (input.githubUsername !== undefined) {
+    const error = validateGithubUsername(input.githubUsername ?? null);
+    if (error) return error;
+  }
   if (input.hoursPerWeek !== undefined) {
     const error = validateHoursPerWeek(input.hoursPerWeek);
     if (error) return error;
@@ -101,6 +109,7 @@ function normalizeItemFields<T extends Partial<PortfolioItemFields>>(input: T): 
   if (next.skills !== undefined) next.skills = normalizeSkills(next.skills);
   if (next.tags !== undefined) next.tags = normalizeTags(next.tags);
   if (next.title !== undefined) next.title = next.title.trim();
+  if (next.githubUsername !== undefined) next.githubUsername = normalizeGithubUsername(next.githubUsername);
   return next;
 }
 

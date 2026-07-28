@@ -21,6 +21,7 @@ function makeItem(overrides: Partial<PortfolioItem> = {}): PortfolioItem {
     skills: [],
     tags: [],
     url: null,
+    github_username: null,
     visibility: "visible",
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-01T00:00:00Z",

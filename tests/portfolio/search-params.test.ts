@@ -21,6 +21,7 @@ function makeItem(overrides: Partial<PortfolioItem> = {}): PortfolioItem {
     skills: [],
     tags: [],
     url: null,
+    github_username: null,
     visibility: "visible",
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-01T00:00:00Z",
@@ -61,20 +62,34 @@ describe("filterPortfolioItems", () => {
   const items = [debate, award];
 
   it("filters by item type", () => {
-    expect(filterPortfolioItems(items, { q: "", itemTypes: ["award"], tag: null, includeArchived: false })).toEqual([award]);
+    expect(filterPortfolioItems(items, { q: "", itemTypes: ["award"], tag: null, includeArchived: false, verificationLevel: null })).toEqual([award]);
   });
 
   it("filters by tag, case-insensitively", () => {
-    expect(filterPortfolioItems(items, { q: "", itemTypes: [], tag: "STEM", includeArchived: false })).toEqual([award]);
+    expect(filterPortfolioItems(items, { q: "", itemTypes: [], tag: "STEM", includeArchived: false, verificationLevel: null })).toEqual([award]);
   });
 
   it("filters by search text across title, outcome, and tags", () => {
-    expect(filterPortfolioItems(items, { q: "first place", itemTypes: [], tag: null, includeArchived: false })).toEqual([award]);
-    expect(filterPortfolioItems(items, { q: "Debate", itemTypes: [], tag: null, includeArchived: false })).toEqual([debate]);
+    expect(filterPortfolioItems(items, { q: "first place", itemTypes: [], tag: null, includeArchived: false, verificationLevel: null })).toEqual([award]);
+    expect(filterPortfolioItems(items, { q: "Debate", itemTypes: [], tag: null, includeArchived: false, verificationLevel: null })).toEqual([debate]);
   });
 
   it("returns everything for the empty filter set", () => {
-    expect(filterPortfolioItems(items, { q: "", itemTypes: [], tag: null, includeArchived: false })).toEqual(items);
+    expect(filterPortfolioItems(items, { q: "", itemTypes: [], tag: null, includeArchived: false, verificationLevel: null })).toEqual(items);
+  });
+
+  it("filters by verification level, treating an item with no record as unverified", () => {
+    const verificationMap = new Map([["2", "externally_confirmed" as const]]);
+    expect(
+      filterPortfolioItems(items, { q: "", itemTypes: [], tag: null, includeArchived: false, verificationLevel: "unverified" }, verificationMap)
+    ).toEqual([debate]);
+    expect(
+      filterPortfolioItems(
+        items,
+        { q: "", itemTypes: [], tag: null, includeArchived: false, verificationLevel: "externally_confirmed" },
+        verificationMap
+      )
+    ).toEqual([award]);
   });
 });
 

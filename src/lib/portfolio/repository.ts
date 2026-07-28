@@ -59,6 +59,7 @@ function toItemInsert(userId: string, input: PortfolioItemFields): Database["pub
     skills: input.skills ?? [],
     tags: input.tags ?? [],
     url: input.url ?? null,
+    github_username: input.githubUsername ?? null,
   };
 }
 
@@ -89,6 +90,7 @@ function toItemUpdate(patch: UpdatePortfolioItemInput): Database["public"]["Tabl
   if (patch.skills !== undefined) update.skills = patch.skills;
   if (patch.tags !== undefined) update.tags = patch.tags;
   if (patch.url !== undefined) update.url = patch.url;
+  if (patch.githubUsername !== undefined) update.github_username = patch.githubUsername;
   if (patch.visibility !== undefined) update.visibility = patch.visibility;
   return update;
 }

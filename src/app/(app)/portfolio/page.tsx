@@ -13,6 +13,7 @@ import { listAllFilesForUser, listPortfolioItems } from "@/lib/portfolio/reposit
 import { collectAllTags, filterPortfolioItems, hasActivePortfolioFilters, parsePortfolioFilters } from "@/lib/portfolio/search-params";
 import { computeProfileStrength, isPortfolioItemIncomplete } from "@/lib/portfolio/strength";
 import { createClient } from "@/lib/supabase/server";
+import { listVerificationsForUser } from "@/lib/verification/repository";
 import type { PortfolioItemType } from "@/types/database";
 import type { PortfolioItem } from "@/types/portfolio";
 
@@ -46,18 +47,20 @@ export default async function PortfolioPage({
   const supabase = await createClient();
   const filters = parsePortfolioFilters(await searchParams);
 
-  const [allItems, files, linkedItemIds] = await Promise.all([
+  const [allItems, files, linkedItemIds, verificationByItemId] = await Promise.all([
     listPortfolioItems(supabase, profile.id, { includeArchived: filters.includeArchived }),
     listAllFilesForUser(supabase, profile.id),
     listLinkedItemIdsForUser(supabase, profile.id),
+    listVerificationsForUser(supabase, profile.id),
   ]);
+  const verificationLevelByItemId = new Map([...verificationByItemId].map(([itemId, v]) => [itemId, v.verification_level]));
 
   const visibleItems = allItems.filter((item) => item.visibility === "visible");
   const fileCountByItemId = fileCountMap(files);
-  const strength = computeProfileStrength({ items: visibleItems, fileCountByItemId, linkedItemIds });
+  const strength = computeProfileStrength({ items: visibleItems, fileCountByItemId, linkedItemIds, verificationLevelByItemId });
   const availableTags = collectAllTags(allItems);
 
-  const filtered = filterPortfolioItems(allItems, filters);
+  const filtered = filterPortfolioItems(allItems, filters, verificationLevelByItemId);
 
   if (allItems.length === 0) {
     return (
@@ -114,7 +117,7 @@ export default async function PortfolioPage({
           <SectionHeading id="incomplete-heading">Needs a few more details</SectionHeading>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {incomplete.map((item) => (
-              <PortfolioItemCard key={item.id} item={item} fileCount={fileCountByItemId.get(item.id) ?? 0} />
+              <PortfolioItemCard key={item.id} item={item} fileCount={fileCountByItemId.get(item.id) ?? 0} verificationLevel={verificationLevelByItemId.get(item.id)} />
             ))}
           </div>
         </section>
@@ -125,7 +128,7 @@ export default async function PortfolioPage({
           <SectionHeading id="recent-heading">Recently added</SectionHeading>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {recent.map((item) => (
-              <PortfolioItemCard key={item.id} item={item} fileCount={fileCountByItemId.get(item.id) ?? 0} />
+              <PortfolioItemCard key={item.id} item={item} fileCount={fileCountByItemId.get(item.id) ?? 0} verificationLevel={verificationLevelByItemId.get(item.id)} />
             ))}
           </div>
         </section>
@@ -144,7 +147,7 @@ export default async function PortfolioPage({
             </div>
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               {items.map((item) => (
-                <PortfolioItemCard key={item.id} item={item} fileCount={fileCountByItemId.get(item.id) ?? 0} />
+                <PortfolioItemCard key={item.id} item={item} fileCount={fileCountByItemId.get(item.id) ?? 0} verificationLevel={verificationLevelByItemId.get(item.id)} />
               ))}
             </div>
           </section>

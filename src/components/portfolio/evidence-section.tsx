@@ -7,10 +7,11 @@ import { Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { EvidenceWarningBanner } from "@/components/verification/evidence-warning-banner";
 import { EVIDENCE_PURPOSES, EVIDENCE_PURPOSE_LABELS } from "@/lib/portfolio/constants";
 import { attachEvidence, detachEvidence } from "@/lib/portfolio/actions";
 import type { MissingEvidenceSuggestion } from "@/lib/applications/evidence-suggestions";
-import type { EvidencePurpose } from "@/types/database";
+import type { EvidencePurpose, PortfolioVerificationLevel } from "@/types/database";
 import type { EvidenceLinkWithItem } from "@/types/portfolio";
 
 const SELECT_CLASS =
@@ -22,11 +23,13 @@ function EvidenceSection({
   links,
   availableItems,
   suggestions,
+  verificationLevelByItemId,
 }: {
   applicationPlanId: string;
   links: EvidenceLinkWithItem[];
   availableItems: { id: string; title: string }[];
   suggestions: MissingEvidenceSuggestion[];
+  verificationLevelByItemId?: ReadonlyMap<string, PortfolioVerificationLevel>;
 }) {
   const [selectedItemId, setSelectedItemId] = useState(availableItems[0]?.id ?? "");
   const [purpose, setPurpose] = useState<EvidencePurpose>("resume");
@@ -84,24 +87,27 @@ function EvidenceSection({
                 {entries.map((link) => (
                   <li
                     key={link.id}
-                    className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2"
+                    className="flex flex-col gap-1 rounded-md border border-border bg-card px-3 py-2"
                   >
-                    <Link
-                      href={`/portfolio/items/${link.item.id}`}
-                      className="min-w-0 truncate text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
-                    >
-                      {link.item.title}
-                    </Link>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleDetach(link.id, link.item.title)}
-                      disabled={isPending}
-                      aria-label={`Remove evidence: ${link.item.title}`}
-                    >
-                      <X aria-hidden="true" className="size-3.5" />
-                    </Button>
+                    <div className="flex items-center justify-between gap-2">
+                      <Link
+                        href={`/portfolio/items/${link.item.id}`}
+                        className="min-w-0 truncate text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+                      >
+                        {link.item.title}
+                      </Link>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => handleDetach(link.id, link.item.title)}
+                        disabled={isPending}
+                        aria-label={`Remove evidence: ${link.item.title}`}
+                      >
+                        <X aria-hidden="true" className="size-3.5" />
+                      </Button>
+                    </div>
+                    <EvidenceWarningBanner level={verificationLevelByItemId?.get(link.item.id) ?? "unverified"} />
                   </li>
                 ))}
               </ul>

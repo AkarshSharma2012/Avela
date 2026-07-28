@@ -11,11 +11,18 @@ import { DeleteItemButton } from "@/components/portfolio/delete-item-button";
 import { FileList } from "@/components/portfolio/file-list";
 import { FileUploadForm } from "@/components/portfolio/file-upload-form";
 import { ItemTypeBadge } from "@/components/portfolio/item-type-badge";
+import { OsintCheckPanel } from "@/components/portfolio/osint/osint-check-panel";
 import { PortfolioItemForm } from "@/components/portfolio/portfolio-item-form";
+import { VerificationPanel } from "@/components/verification/verification-panel";
 import { getAuthenticatedUser, requireProfile } from "@/lib/auth/dal";
+import { isOsintEligible } from "@/lib/osint/claim-eligibility";
+import { getLatestCheckForItem, listConflictsForCheck, listEvidenceForCheck } from "@/lib/osint/repository";
 import { listApplicationsUsingItem } from "@/lib/portfolio/evidence-repository";
 import { getPortfolioItem, listFilesForItem } from "@/lib/portfolio/repository";
 import { createClient } from "@/lib/supabase/server";
+import { deriveRequestStatus } from "@/lib/verification/request";
+import { getVerificationForItem, metadataOf } from "@/lib/verification/repository";
+import type { OsintCheckWithFindings } from "@/types/osint";
 
 type PageParams = { id: string };
 
@@ -50,10 +57,32 @@ export default async function PortfolioItemWorkspacePage({ params }: { params: P
     notFound();
   }
 
-  const [files, applicationsUsingItem] = await Promise.all([
+  const [files, applicationsUsingItem, verification] = await Promise.all([
     listFilesForItem(supabase, profile.id, id),
     listApplicationsUsingItem(supabase, profile.id, id),
+    getVerificationForItem(supabase, profile.id, id),
   ]);
+  const requestStatus = verification
+    ? deriveRequestStatus({
+        requestedAt: verification.requested_at,
+        verifiedAt: verification.verified_at,
+        expiresAt: verification.expires_at,
+        verificationLevel: verification.verification_level,
+        metadata: metadataOf(verification),
+      })
+    : "not_requested";
+
+  let osintCheck: OsintCheckWithFindings | null = null;
+  if (isOsintEligible(item.item_type)) {
+    const latestCheck = await getLatestCheckForItem(supabase, profile.id, id);
+    if (latestCheck) {
+      const [evidence, conflicts] = await Promise.all([
+        listEvidenceForCheck(supabase, profile.id, latestCheck.id),
+        listConflictsForCheck(supabase, profile.id, latestCheck.id),
+      ]);
+      osintCheck = { ...latestCheck, evidence, conflicts };
+    }
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-10 sm:py-12">
@@ -99,6 +128,16 @@ export default async function PortfolioItemWorkspacePage({ params }: { params: P
             <FileUploadForm portfolioItemId={item.id} />
           </div>
         </Section>
+
+        <Section id="verification-heading" title="Verification">
+          <VerificationPanel itemId={item.id} itemTitle={item.title} verification={verification} requestStatus={requestStatus} files={files} />
+        </Section>
+
+        {isOsintEligible(item.item_type) && (
+          <Section id="osint-heading" title="Public sources">
+            <OsintCheckPanel itemId={item.id} itemTitle={item.title} check={osintCheck} />
+          </Section>
+        )}
 
         <Section id="applications-heading" title="Applications using this evidence">
           <ApplicationsUsingItem applications={applicationsUsingItem} />

@@ -5,6 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PORTFOLIO_ITEM_TYPES } from "@/lib/portfolio/constants";
 import { hasActivePortfolioFilters, type PortfolioFilters } from "@/lib/portfolio/search-params";
+import { VERIFICATION_LEVEL_LABELS } from "@/lib/verification/constants";
+import type { PortfolioVerificationLevel } from "@/types/database";
+
+/** Spec section 5's four filters — `rejected` is deliberately left out of this control (still reachable on the item itself, never hidden — see the panel), since it isn't one of the named filter options. */
+const VERIFICATION_FILTER_OPTIONS: readonly { value: PortfolioVerificationLevel; label: string }[] = [
+  { value: "unverified", label: VERIFICATION_LEVEL_LABELS.unverified },
+  { value: "evidence_added", label: VERIFICATION_LEVEL_LABELS.evidence_added },
+  { value: "externally_confirmed", label: VERIFICATION_LEVEL_LABELS.externally_confirmed },
+  { value: "needs_review", label: VERIFICATION_LEVEL_LABELS.needs_review },
+];
 
 const SELECT_CLASS =
   "h-9 rounded-md border border-input bg-card px-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30";
@@ -37,6 +47,20 @@ function PortfolioFilterForm({ filters, availableTags }: { filters: PortfolioFil
         <select id="portfolio-type-filter" name="type" defaultValue={filters.itemTypes[0] ?? ""} className={SELECT_CLASS}>
           <option value="">All types</option>
           {PORTFOLIO_ITEM_TYPES.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="portfolio-verify-filter" className="sr-only">
+          Filter by verification status
+        </Label>
+        <select id="portfolio-verify-filter" name="verify" defaultValue={filters.verificationLevel ?? ""} className={SELECT_CLASS}>
+          <option value="">Any verification status</option>
+          {VERIFICATION_FILTER_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

@@ -86,6 +86,25 @@ describe("updatePortfolioItemForUser", () => {
     const result = await updatePortfolioItemForUser("user-1", "item-1", { title: "x" }, write);
     expect(result).toEqual({ success: false, error: "Couldn't save your changes. Please try again." });
   });
+
+  it("normalizes any accepted GitHub username format down to a bare username before calling write()", async () => {
+    const write = vi.fn(async () => ({ error: null }));
+    const result = await updatePortfolioItemForUser(
+      "user-1",
+      "item-1",
+      { githubUsername: "https://github.com/AkarshSharma2012" },
+      write
+    );
+    expect(result).toEqual({ success: true });
+    expect(write).toHaveBeenCalledExactlyOnceWith("user-1", "item-1", { githubUsername: "AkarshSharma2012" });
+  });
+
+  it("rejects a GitHub username that can't be normalized before calling write()", async () => {
+    const write = vi.fn();
+    const result = await updatePortfolioItemForUser("user-1", "item-1", { githubUsername: "not a username!!" }, write);
+    expect(result.success).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+  });
 });
 
 describe("setPortfolioItemVisibilityForUser", () => {

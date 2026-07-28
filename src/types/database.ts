@@ -293,6 +293,75 @@ export type EvidencePurpose =
   | "eligibility_proof"
   | "other";
 
+// Portfolio Verification & Trust Signals (Milestone 10.5)
+
+/** See supabase/migrations/20260803000000_portfolio_verification.sql for the check constraint this mirrors. */
+export type PortfolioVerificationLevel = "unverified" | "evidence_added" | "externally_confirmed" | "needs_review" | "rejected";
+
+export type PortfolioVerificationMethod =
+  | "uploaded_document"
+  | "official_url"
+  | "organization_email"
+  | "teacher_or_mentor"
+  | "recommendation_contact"
+  | "manual_review"
+  | "system_consistency_check";
+
+export type PortfolioVerificationEventType =
+  | "evidence_added"
+  | "evidence_replaced"
+  | "official_url_added"
+  | "verification_requested"
+  | "verification_resent"
+  | "verification_cancelled"
+  | "verification_confirmed"
+  | "verification_declined"
+  | "correction_requested"
+  | "verification_expired"
+  | "reviewer_decision"
+  | "consistency_check_run"
+  | "level_changed";
+
+export type PortfolioVerificationActorType = "student" | "verifier" | "reviewer" | "system";
+
+// Public-Source Verification Engine / OSINT (Milestone 10.6)
+
+/** See supabase/migrations/20260804000000_portfolio_osint.sql for the check constraint this mirrors. */
+export type PortfolioOsintCheckStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+/**
+ * Never "true" or "false" — how strongly a claim is publicly supported so
+ * far, nothing more. Mirrors src/lib/osint/scoring.ts's thresholds.
+ */
+export type PortfolioOsintSupportLevel =
+  | "confirmed_by_authoritative_source"
+  | "strongly_supported"
+  | "partially_supported"
+  | "unable_to_verify"
+  | "needs_review";
+
+export type PortfolioOsintSourceType =
+  | "official_organization"
+  | "github"
+  | "crossref"
+  | "icann_rdap"
+  | "url_reputation"
+  | "issuer_page"
+  | "structured_metadata"
+  | "other";
+
+export type PortfolioOsintAuthorityLevel =
+  | "issuer"
+  | "official_organization"
+  | "trusted_registry"
+  | "verified_public_profile"
+  | "secondary_source"
+  | "unknown";
+
+export type PortfolioOsintConflictSeverity = "info" | "minor" | "material";
+
+export type PortfolioOsintReviewAction = "confirm_support" | "request_clarification" | "mark_insufficient" | "override_support_level";
+
 export type Database = {
   public: {
     Tables: {
@@ -1169,6 +1238,7 @@ export type Database = {
           skills: string[];
           tags: string[];
           url: string | null;
+          github_username: string | null;
           visibility: PortfolioItemVisibility;
           created_at: string;
           updated_at: string;
@@ -1190,6 +1260,7 @@ export type Database = {
           skills?: string[];
           tags?: string[];
           url?: string | null;
+          github_username?: string | null;
           visibility?: PortfolioItemVisibility;
           created_at?: string;
           updated_at?: string;
@@ -1211,6 +1282,7 @@ export type Database = {
           skills?: string[];
           tags?: string[];
           url?: string | null;
+          github_username?: string | null;
           visibility?: PortfolioItemVisibility;
           created_at?: string;
           updated_at?: string;
@@ -1282,6 +1354,276 @@ export type Database = {
           portfolio_item_id?: string;
           evidence_purpose?: EvidencePurpose;
           notes?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_verifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          verification_level: PortfolioVerificationLevel;
+          verification_method: PortfolioVerificationMethod | null;
+          evidence_file_id: string | null;
+          evidence_url: string | null;
+          verifier_name: string | null;
+          verifier_email: string | null;
+          verifier_organization: string | null;
+          verification_code_hash: string | null;
+          requested_at: string | null;
+          verified_at: string | null;
+          expires_at: string | null;
+          review_notes: string | null;
+          metadata: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          verification_level?: PortfolioVerificationLevel;
+          verification_method?: PortfolioVerificationMethod | null;
+          evidence_file_id?: string | null;
+          evidence_url?: string | null;
+          verifier_name?: string | null;
+          verifier_email?: string | null;
+          verifier_organization?: string | null;
+          verification_code_hash?: string | null;
+          requested_at?: string | null;
+          verified_at?: string | null;
+          expires_at?: string | null;
+          review_notes?: string | null;
+          metadata?: Record<string, unknown>;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          verification_level?: PortfolioVerificationLevel;
+          verification_method?: PortfolioVerificationMethod | null;
+          evidence_file_id?: string | null;
+          evidence_url?: string | null;
+          verifier_name?: string | null;
+          verifier_email?: string | null;
+          verifier_organization?: string | null;
+          verification_code_hash?: string | null;
+          requested_at?: string | null;
+          verified_at?: string | null;
+          expires_at?: string | null;
+          review_notes?: string | null;
+          metadata?: Record<string, unknown>;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_verification_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          verification_id: string;
+          event_type: PortfolioVerificationEventType;
+          actor_type: PortfolioVerificationActorType;
+          previous_level: PortfolioVerificationLevel | null;
+          new_level: PortfolioVerificationLevel | null;
+          reason: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          verification_id: string;
+          event_type: PortfolioVerificationEventType;
+          actor_type: PortfolioVerificationActorType;
+          previous_level?: PortfolioVerificationLevel | null;
+          new_level?: PortfolioVerificationLevel | null;
+          reason?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          verification_id?: string;
+          event_type?: PortfolioVerificationEventType;
+          actor_type?: PortfolioVerificationActorType;
+          previous_level?: PortfolioVerificationLevel | null;
+          new_level?: PortfolioVerificationLevel | null;
+          reason?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_osint_checks: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          status: PortfolioOsintCheckStatus;
+          consent_scope: Record<string, unknown>;
+          started_at: string | null;
+          completed_at: string | null;
+          expires_at: string | null;
+          final_support_level: PortfolioOsintSupportLevel | null;
+          score: number | null;
+          score_breakdown: { label: string; points: number }[];
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          status?: PortfolioOsintCheckStatus;
+          consent_scope?: Record<string, unknown>;
+          started_at?: string | null;
+          completed_at?: string | null;
+          expires_at?: string | null;
+          final_support_level?: PortfolioOsintSupportLevel | null;
+          score?: number | null;
+          score_breakdown?: { label: string; points: number }[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          status?: PortfolioOsintCheckStatus;
+          consent_scope?: Record<string, unknown>;
+          started_at?: string | null;
+          completed_at?: string | null;
+          expires_at?: string | null;
+          final_support_level?: PortfolioOsintSupportLevel | null;
+          score?: number | null;
+          score_breakdown?: { label: string; points: number }[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_osint_evidence: {
+        Row: {
+          id: string;
+          user_id: string;
+          check_id: string;
+          source_type: PortfolioOsintSourceType;
+          source_url: string;
+          source_domain: string;
+          authority_level: PortfolioOsintAuthorityLevel;
+          extracted_fields: Record<string, unknown>;
+          confidence: number;
+          content_hash: string;
+          retrieved_at: string;
+          expires_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          check_id: string;
+          source_type: PortfolioOsintSourceType;
+          source_url: string;
+          source_domain: string;
+          authority_level: PortfolioOsintAuthorityLevel;
+          extracted_fields?: Record<string, unknown>;
+          confidence?: number;
+          content_hash: string;
+          retrieved_at?: string;
+          expires_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          check_id?: string;
+          source_type?: PortfolioOsintSourceType;
+          source_url?: string;
+          source_domain?: string;
+          authority_level?: PortfolioOsintAuthorityLevel;
+          extracted_fields?: Record<string, unknown>;
+          confidence?: number;
+          content_hash?: string;
+          retrieved_at?: string;
+          expires_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_osint_conflicts: {
+        Row: {
+          id: string;
+          user_id: string;
+          check_id: string;
+          field_name: string;
+          claimed_value: string | null;
+          observed_value: string | null;
+          severity: PortfolioOsintConflictSeverity;
+          respectful_message: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          check_id: string;
+          field_name: string;
+          claimed_value?: string | null;
+          observed_value?: string | null;
+          severity: PortfolioOsintConflictSeverity;
+          respectful_message: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          check_id?: string;
+          field_name?: string;
+          claimed_value?: string | null;
+          observed_value?: string | null;
+          severity?: PortfolioOsintConflictSeverity;
+          respectful_message?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_osint_review_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          check_id: string;
+          reviewer_email: string;
+          action: PortfolioOsintReviewAction;
+          previous_support_level: string | null;
+          new_support_level: string | null;
+          reason: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          check_id: string;
+          reviewer_email: string;
+          action: PortfolioOsintReviewAction;
+          previous_support_level?: string | null;
+          new_support_level?: string | null;
+          reason: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          check_id?: string;
+          reviewer_email?: string;
+          action?: PortfolioOsintReviewAction;
+          previous_support_level?: string | null;
+          new_support_level?: string | null;
+          reason?: string;
           created_at?: string;
         };
         Relationships: [];

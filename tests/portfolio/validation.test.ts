@@ -4,6 +4,7 @@ import {
   MAX_TAGS,
   normalizeStringList,
   validateEvidenceNotes,
+  validateGithubUsername,
   validateHoursPerWeek,
   validateItemCurrentEnd,
   validateItemDateRange,
@@ -15,6 +16,25 @@ import {
   validateItemUrl,
   validateWeeksPerYear,
 } from "@/lib/portfolio/validation";
+
+describe("validateGithubUsername", () => {
+  it("accepts null/empty (optional field)", () => {
+    expect(validateGithubUsername(null)).toBeNull();
+    expect(validateGithubUsername("")).toBeNull();
+  });
+
+  it("accepts any format github-identity.ts normalizes", () => {
+    expect(validateGithubUsername("AkarshSharma2012")).toBeNull();
+    expect(validateGithubUsername("@AkarshSharma2012")).toBeNull();
+    expect(validateGithubUsername("github.com/AkarshSharma2012")).toBeNull();
+    expect(validateGithubUsername("https://github.com/AkarshSharma2012")).toBeNull();
+  });
+
+  it("rejects text that isn't a valid GitHub username in any format", () => {
+    expect(validateGithubUsername("this is not a username!!")).toMatch(/valid github username/i);
+    expect(validateGithubUsername("https://example.com/notgithub")).toMatch(/valid github username/i);
+  });
+});
 
 describe("validateItemTitle", () => {
   it("rejects empty or whitespace-only titles", () => {

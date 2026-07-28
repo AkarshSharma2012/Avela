@@ -27,6 +27,7 @@ import { listPortfolioItems } from "@/lib/portfolio/repository";
 import { listRemindersForPlan } from "@/lib/reminders/repository";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
+import { listVerificationsForUser } from "@/lib/verification/repository";
 
 type PageParams = { id: string };
 
@@ -62,12 +63,14 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
   }
 
   const { plan, opportunity, tasks } = bundle;
-  const [saved, planReminders, evidenceLinks, portfolioItems] = await Promise.all([
+  const [saved, planReminders, evidenceLinks, portfolioItems, verificationByItemId] = await Promise.all([
     isOpportunitySaved(supabase, profile.id, opportunity.id),
     listRemindersForPlan(supabase, profile.id, plan.id),
     listEvidenceLinksForPlan(supabase, profile.id, plan.id),
     listPortfolioItems(supabase, profile.id),
+    listVerificationsForUser(supabase, profile.id),
   ]);
+  const verificationLevelByItemId = new Map([...verificationByItemId].map(([itemId, v]) => [itemId, v.verification_level]));
   const closedOrExpired = isOpportunityClosedOrExpired(opportunity);
   const reminderCards: ReminderCardData[] = planReminders.map((reminder) => ({ ...reminder, relatedHref: null, relatedLabel: null }));
   const existingEvidencePurposes = new Set(evidenceLinks.map((link) => link.evidence_purpose));
@@ -150,6 +153,7 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
             links={evidenceLinks}
             availableItems={availableEvidenceItems}
             suggestions={evidenceSuggestions}
+            verificationLevelByItemId={verificationLevelByItemId}
           />
         </Section>
 

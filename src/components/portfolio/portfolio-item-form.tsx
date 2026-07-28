@@ -35,6 +35,7 @@ type FormState = {
   skills: string;
   tags: string;
   url: string;
+  githubUsername: string;
 };
 
 function toFormState(item?: PortfolioItem): FormState {
@@ -53,6 +54,7 @@ function toFormState(item?: PortfolioItem): FormState {
     skills: item?.skills.join(", ") ?? "",
     tags: item?.tags.join(", ") ?? "",
     url: item?.url ?? "",
+    githubUsername: item?.github_username ?? "",
   };
 }
 
@@ -79,6 +81,7 @@ function toFields(state: FormState): PortfolioItemFields {
     skills: splitList(state.skills),
     tags: splitList(state.tags),
     url: state.url.trim() === "" ? null : state.url.trim(),
+    githubUsername: state.githubUsername.trim() === "" ? null : state.githubUsername.trim(),
   };
 }
 
@@ -305,6 +308,21 @@ function PortfolioItemForm({
           placeholder="https://..."
           disabled={isPending}
         />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="item-github-username">GitHub username (optional)</Label>
+        <Input
+          id="item-github-username"
+          value={state.githubUsername}
+          onChange={(event) => update("githubUsername", event.target.value)}
+          placeholder="yourusername or github.com/yourusername"
+          disabled={isPending}
+        />
+        <p className="text-xs text-muted-foreground">
+          If this links to a GitHub repository, connect the account that owns or contributed to it — this is what we
+          check for ownership, not your name.
+        </p>
       </div>
 
       {error && <FieldError id="portfolio-item-form-error" errors={[error]} />}

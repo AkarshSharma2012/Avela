@@ -23,6 +23,7 @@ function makeItem(overrides: Partial<PortfolioItem> & { item_type: PortfolioItem
     skills: [],
     tags: [],
     url: null,
+    github_username: null,
     visibility: "visible",
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-01T00:00:00Z",
@@ -112,6 +113,57 @@ describe("computeProfileStrength", () => {
     const coverageOne = oneType.reasons.find((r) => r.label.includes("type"));
     const coverageTwo = twoTypes.reasons.find((r) => r.label.includes("type"));
     expect(coverageTwo!.points).toBeGreaterThan(coverageOne!.points);
+  });
+});
+
+describe("computeProfileStrength — verification trust bonus (Milestone 10.5)", () => {
+  it("adds zero trust bonus when no verification data is supplied at all", () => {
+    const item = makeItem({ item_type: "award", id: "a1" });
+    const result = score([item]);
+    const trustReason = result.reasons.find((r) => r.label.startsWith("Evidence verification"));
+    expect(trustReason?.points).toBe(0);
+  });
+
+  it("never penalizes an unverified item — every other category matches an externally-confirmed twin exactly", () => {
+    const unverified = makeItem({ item_type: "volunteer_service", id: "u1", start_date: "2026-01-01", outcome: "Helped out.", skills: ["Care"] });
+    const confirmed = makeItem({ item_type: "volunteer_service", id: "c1", start_date: "2026-01-01", outcome: "Helped out.", skills: ["Care"] });
+
+    const unverifiedResult = score([unverified], { verificationLevelByItemId: new Map([["u1", "unverified"]]) });
+    const confirmedResult = score([confirmed], { verificationLevelByItemId: new Map([["c1", "externally_confirmed"]]) });
+
+    const nonTrustReasons = (r: ReturnType<typeof score>["reasons"]) => r.filter((reason) => !reason.label.startsWith("Evidence verification"));
+    expect(nonTrustReasons(unverifiedResult.reasons)).toEqual(nonTrustReasons(confirmedResult.reasons));
+  });
+
+  it("gives externally_confirmed the full trust bonus and unverified none", () => {
+    const item = makeItem({ item_type: "award", id: "a1" });
+    const confirmed = score([item], { verificationLevelByItemId: new Map([["a1", "externally_confirmed"]]) });
+    const unverified = score([item], { verificationLevelByItemId: new Map([["a1", "unverified"]]) });
+    const confirmedTrust = confirmed.reasons.find((r) => r.label.startsWith("Evidence verification"));
+    const unverifiedTrust = unverified.reasons.find((r) => r.label.startsWith("Evidence verification"));
+    expect(confirmedTrust?.points).toBe(confirmedTrust?.maxPoints);
+    expect(unverifiedTrust?.points).toBe(0);
+  });
+
+  it("gives a rejected finding zero trust bonus, same as unverified — never a penalty below zero", () => {
+    const item = makeItem({ item_type: "award", id: "a1" });
+    const rejected = score([item], { verificationLevelByItemId: new Map([["a1", "rejected"]]) });
+    const unverified = score([item], { verificationLevelByItemId: new Map([["a1", "unverified"]]) });
+    const rejectedTrust = rejected.reasons.find((r) => r.label.startsWith("Evidence verification"));
+    const unverifiedTrust = unverified.reasons.find((r) => r.label.startsWith("Evidence verification"));
+    expect(rejectedTrust?.points).toBe(unverifiedTrust?.points);
+    const nonTrustReasons = (r: ReturnType<typeof score>["reasons"]) => r.filter((reason) => !reason.label.startsWith("Evidence verification"));
+    expect(nonTrustReasons(rejected.reasons)).toEqual(nonTrustReasons(unverified.reasons));
+  });
+
+  it("never reads item_type/organization for the trust bonus — a paid work_experience and an unpaid volunteer_service at the same verification level earn identical bonus points", () => {
+    const volunteer = makeItem({ item_type: "volunteer_service", id: "v1" });
+    const paidWork = makeItem({ item_type: "work_experience", id: "w1" });
+    const volunteerResult = score([volunteer], { verificationLevelByItemId: new Map([["v1", "externally_confirmed"]]) });
+    const paidResult = score([paidWork], { verificationLevelByItemId: new Map([["w1", "externally_confirmed"]]) });
+    const volunteerTrust = volunteerResult.reasons.find((r) => r.label.startsWith("Evidence verification"));
+    const paidTrust = paidResult.reasons.find((r) => r.label.startsWith("Evidence verification"));
+    expect(volunteerTrust?.points).toBe(paidTrust?.points);
   });
 });
 

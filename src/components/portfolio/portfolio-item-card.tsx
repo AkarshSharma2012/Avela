@@ -3,7 +3,9 @@ import { TriangleAlert } from "lucide-react";
 
 import { ItemTypeBadge } from "@/components/portfolio/item-type-badge";
 import { Chip } from "@/components/ui/chip";
+import { VerificationBadge } from "@/components/verification/verification-badge";
 import { isPortfolioItemIncomplete } from "@/lib/portfolio/strength";
+import type { PortfolioVerificationLevel } from "@/types/database";
 import type { PortfolioItem } from "@/types/portfolio";
 
 function formatDateRange(item: PortfolioItem): string | null {
@@ -15,7 +17,15 @@ function formatDateRange(item: PortfolioItem): string | null {
   return null;
 }
 
-function PortfolioItemCard({ item, fileCount = 0 }: { item: PortfolioItem; fileCount?: number }) {
+function PortfolioItemCard({
+  item,
+  fileCount = 0,
+  verificationLevel,
+}: {
+  item: PortfolioItem;
+  fileCount?: number;
+  verificationLevel?: PortfolioVerificationLevel;
+}) {
   const dateRange = formatDateRange(item);
   const incomplete = isPortfolioItemIncomplete(item);
 
@@ -23,7 +33,10 @@ function PortfolioItemCard({ item, fileCount = 0 }: { item: PortfolioItem; fileC
     <article className="flex flex-col gap-2.5 rounded-md border border-border bg-card px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <ItemTypeBadge itemType={item.item_type} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <ItemTypeBadge itemType={item.item_type} />
+            <VerificationBadge level={verificationLevel ?? "unverified"} />
+          </div>
           <h3 className="mt-1.5 font-heading text-base text-foreground">
             <Link
               href={`/portfolio/items/${item.id}`}

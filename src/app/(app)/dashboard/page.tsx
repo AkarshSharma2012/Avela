@@ -32,6 +32,7 @@ import {
 import { buildPortfolioDashboardSummary } from "@/lib/portfolio/dashboard";
 import { countEvidenceLinksByPlan, listLinkedItemIdsForUser } from "@/lib/portfolio/evidence-repository";
 import { listAllFilesForUser, listPortfolioItems } from "@/lib/portfolio/repository";
+import { listVerificationsForUser } from "@/lib/verification/repository";
 import { buildReminderDashboardSummary } from "@/lib/reminders/intelligence";
 import { formatReminderDateTime } from "@/lib/reminders/format";
 import { listRemindersForUser } from "@/lib/reminders/repository";
@@ -215,11 +216,13 @@ export default async function DashboardPage({
     }))
   );
 
-  const [portfolioItems, portfolioFiles, linkedPortfolioItemIds] = await Promise.all([
+  const [portfolioItems, portfolioFiles, linkedPortfolioItemIds, portfolioVerifications] = await Promise.all([
     listPortfolioItems(supabase, profile.id),
     listAllFilesForUser(supabase, profile.id),
     listLinkedItemIdsForUser(supabase, profile.id),
+    listVerificationsForUser(supabase, profile.id),
   ]);
+  const verificationLevelByItemId = new Map([...portfolioVerifications].map(([itemId, v]) => [itemId, v.verification_level]));
   const activePlanIds = applicationBundles
     .filter((bundle) => isActiveApplicationStatus(bundle.plan.status))
     .map((bundle) => bundle.plan.id);
@@ -233,6 +236,7 @@ export default async function DashboardPage({
     items: portfolioItems.filter((item) => item.visibility === "visible"),
     fileCountByItemId: fileCountByPortfolioItemId,
     linkedItemIds: linkedPortfolioItemIds,
+    verificationLevelByItemId,
     activePlanIds,
     evidenceCountByPlanId,
   });

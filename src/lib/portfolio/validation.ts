@@ -6,6 +6,8 @@
  * MAX_TITLE_LENGTH).
  */
 
+import { normalizeGithubUsername } from "@/lib/osint/github-identity";
+
 export const MAX_TITLE_LENGTH = 200;
 export const MAX_ORGANIZATION_LENGTH = 200;
 export const MAX_DESCRIPTION_LENGTH = 5000;
@@ -47,6 +49,15 @@ export function validateItemRole(role: string | null): string | null {
 /** Outcome is always the student's own factual account — this only bounds length; it never judges or rewrites what's written. */
 export function validateItemOutcome(outcome: string | null): string | null {
   if (outcome !== null && outcome.length > MAX_OUTCOME_LENGTH) return "Outcome is too long.";
+  return null;
+}
+
+/** Accepts any of the formats github-identity.ts normalizes (bare username, @username, a github.com URL) — only rejects text that doesn't resolve to a valid GitHub username at all. */
+export function validateGithubUsername(githubUsername: string | null): string | null {
+  if (githubUsername === null || githubUsername.trim().length === 0) return null;
+  if (normalizeGithubUsername(githubUsername) === null) {
+    return "That doesn't look like a valid GitHub username or profile link.";
+  }
   return null;
 }
 

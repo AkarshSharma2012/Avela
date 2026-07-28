@@ -7,7 +7,8 @@
  */
 
 import { PORTFOLIO_ITEM_TYPES } from "@/lib/portfolio/constants";
-import type { PortfolioItemType } from "@/types/database";
+import { VERIFICATION_LEVELS } from "@/lib/verification/constants";
+import type { PortfolioItemType, PortfolioVerificationLevel } from "@/types/database";
 import type { PortfolioItem } from "@/types/portfolio";
 
 export type PortfolioFilters = {
@@ -15,6 +16,8 @@ export type PortfolioFilters = {
   itemTypes: PortfolioItemType[];
   tag: string | null;
   includeArchived: boolean;
+  /** null = no filter. Never hides unverified items by default — see filterPortfolioItems (spec section 5: "do not hide unverified entries"). */
+  verificationLevel: PortfolioVerificationLevel | null;
 };
 
 export const EMPTY_PORTFOLIO_FILTERS: PortfolioFilters = {
@@ -22,6 +25,7 @@ export const EMPTY_PORTFOLIO_FILTERS: PortfolioFilters = {
   itemTypes: [],
   tag: null,
   includeArchived: false,
+  verificationLevel: null,
 };
 
 export type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -32,6 +36,7 @@ function toArray(value: string | string[] | undefined): string[] {
 }
 
 const ITEM_TYPE_VALUES = new Set(PORTFOLIO_ITEM_TYPES.map((option) => option.value));
+const VERIFICATION_LEVEL_VALUES = new Set(VERIFICATION_LEVELS.map((option) => option.value));
 
 /** Unknown/malformed query params are silently dropped rather than throwing — a bad or stale URL should degrade to "no filter," not a 500. */
 export function parsePortfolioFilters(raw: RawSearchParams): PortfolioFilters {
@@ -46,11 +51,14 @@ export function parsePortfolioFilters(raw: RawSearchParams): PortfolioFilters {
 
   const includeArchived = (Array.isArray(raw.archived) ? raw.archived[0] : raw.archived) === "true";
 
-  return { q, itemTypes, tag, includeArchived };
+  const verifyRaw = Array.isArray(raw.verify) ? raw.verify[0] : raw.verify;
+  const verificationLevel = verifyRaw && VERIFICATION_LEVEL_VALUES.has(verifyRaw as PortfolioVerificationLevel) ? (verifyRaw as PortfolioVerificationLevel) : null;
+
+  return { q, itemTypes, tag, includeArchived, verificationLevel };
 }
 
 export function hasActivePortfolioFilters(filters: PortfolioFilters): boolean {
-  return filters.q !== "" || filters.itemTypes.length > 0 || filters.tag !== null;
+  return filters.q !== "" || filters.itemTypes.length > 0 || filters.tag !== null || filters.verificationLevel !== null;
 }
 
 function matchesQuery(item: PortfolioItem, q: string): boolean {
@@ -61,11 +69,28 @@ function matchesQuery(item: PortfolioItem, q: string): boolean {
   return haystack.includes(q.toLowerCase());
 }
 
-export function filterPortfolioItems(items: readonly PortfolioItem[], filters: PortfolioFilters): PortfolioItem[] {
+/**
+ * `verificationLevelByItemId` is optional and only ever *filters* — an item
+ * with no entry is treated as `unverified`, same as everywhere else in the
+ * verification layer, and never dropped just because it lacks a record
+ * (spec section 5: "do not hide unverified entries" applies to filtering
+ * too — passing no filter, or filtering *for* `unverified`, still shows
+ * them; only filtering for a *different* level hides them, same as any
+ * other filter).
+ */
+export function filterPortfolioItems(
+  items: readonly PortfolioItem[],
+  filters: PortfolioFilters,
+  verificationLevelByItemId?: ReadonlyMap<string, PortfolioVerificationLevel>
+): PortfolioItem[] {
   return items.filter((item) => {
     if (filters.itemTypes.length > 0 && !filters.itemTypes.includes(item.item_type)) return false;
     if (filters.tag && !item.tags.some((tag) => tag.toLowerCase() === filters.tag?.toLowerCase())) return false;
     if (!matchesQuery(item, filters.q)) return false;
+    if (filters.verificationLevel) {
+      const level = verificationLevelByItemId?.get(item.id) ?? "unverified";
+      if (level !== filters.verificationLevel) return false;
+    }
     return true;
   });
 }

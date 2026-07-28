@@ -13,6 +13,7 @@
  */
 
 import type { PortfolioItem } from "@/types/portfolio";
+import type { PortfolioVerificationLevel } from "@/types/database";
 
 /**
  * Item types where attaching real proof (a file or an outside link)
@@ -54,6 +55,40 @@ export type ProfileStrengthInput = {
   fileCountByItemId: ReadonlyMap<string, number>;
   /** Portfolio item ids that are attached as evidence to at least one application. */
   linkedItemIds: ReadonlySet<string>;
+  /**
+   * Portfolio item id -> current verification level (Milestone 10.5).
+   * Optional and defaults to empty — an item with no entry here (or no
+   * verification row at all) is treated exactly like `unverified`, which
+   * earns zero trust-bonus points but never subtracts from anything else.
+   * Every other scoring category above is computed identically regardless
+   * of this map, by design (fairness rule below).
+   */
+  verificationLevelByItemId?: ReadonlyMap<string, PortfolioVerificationLevel>;
+};
+
+/**
+ * Verification trust bonus (spec section 6) — small, transparent, and
+ * strictly additive. `unverified` and items with no record at all earn 0;
+ * a reviewer `rejected` finding also earns 0 (that specific piece of
+ * evidence didn't hold up, but the bonus simply doesn't apply — it's never
+ * a penalty, and every other point the item already earned above is
+ * untouched). Fairness rules this must never violate:
+ *   - paid programs and prestigious organizations get no extra weight —
+ *     this function only ever reads `verification_level`, never
+ *     `item_type`, `organization`, cost, or pay.
+ *   - a student with no formal documents (community work, family
+ *     responsibility, informal leadership, self-directed projects) is
+ *     never penalized for staying at `unverified` — their coverage,
+ *     volume, completeness, and proof points are computed exactly the
+ *     same as anyone else's; this bonus can only ever add on top.
+ */
+const TRUST_MAX = 10;
+const TRUST_WEIGHT_BY_LEVEL: Record<PortfolioVerificationLevel, number> = {
+  unverified: 0,
+  evidence_added: 0.5,
+  needs_review: 0.25,
+  externally_confirmed: 1,
+  rejected: 0,
 };
 
 function round(value: number): number {
@@ -85,8 +120,8 @@ const PROOF_MAX = 15;
 const LINKED_MAX = 10;
 
 export function computeProfileStrength(input: ProfileStrengthInput): ProfileStrength {
-  const { items, fileCountByItemId, linkedItemIds } = input;
-  const maxScore = COVERAGE_MAX + VOLUME_MAX + COMPLETENESS_MAX + PROOF_MAX + LINKED_MAX;
+  const { items, fileCountByItemId, linkedItemIds, verificationLevelByItemId } = input;
+  const maxScore = COVERAGE_MAX + VOLUME_MAX + COMPLETENESS_MAX + PROOF_MAX + LINKED_MAX + TRUST_MAX;
 
   if (items.length === 0) {
     return {
@@ -116,12 +151,17 @@ export function computeProfileStrength(input: ProfileStrengthInput): ProfileStre
   const linkedFraction = items.filter((item) => linkedItemIds.has(item.id)).length / items.length;
   const linkedPoints = round(linkedFraction * LINKED_MAX);
 
+  const trustFraction =
+    items.reduce((sum, item) => sum + TRUST_WEIGHT_BY_LEVEL[verificationLevelByItemId?.get(item.id) ?? "unverified"], 0) / items.length;
+  const trustPoints = round(trustFraction * TRUST_MAX);
+
   const reasons: ProfileStrengthReason[] = [
     { label: `${distinctTypes} type${distinctTypes === 1 ? "" : "s"} of evidence`, points: coveragePoints, maxPoints: COVERAGE_MAX },
     { label: `${items.length} item${items.length === 1 ? "" : "s"} documented`, points: volumePoints, maxPoints: VOLUME_MAX },
     { label: "How complete each item is (dates, outcome, skills)", points: completenessPoints, maxPoints: COMPLETENESS_MAX },
     { label: "Proof attached where it helps (files or links)", points: proofPoints, maxPoints: PROOF_MAX },
     { label: "Items backing up a real application", points: linkedPoints, maxPoints: LINKED_MAX },
+    { label: "Evidence verification (optional bonus)", points: trustPoints, maxPoints: TRUST_MAX },
   ];
 
   const suggestions: string[] = [];
@@ -138,7 +178,7 @@ export function computeProfileStrength(input: ProfileStrengthInput): ProfileStre
     suggestions.push("Attach evidence to an application from your Applications page.");
   }
 
-  const score = Math.round(coveragePoints + volumePoints + completenessPoints + proofPoints + linkedPoints);
+  const score = Math.round(coveragePoints + volumePoints + completenessPoints + proofPoints + linkedPoints + trustPoints);
 
   return { score, maxScore, reasons, suggestions };
 }
