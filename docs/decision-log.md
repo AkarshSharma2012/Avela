@@ -704,3 +704,60 @@ made any database write (confirmed both by code inspection — every write
 method in `runIngestion` is gated behind `!dryRun` — and by
 `opportunities:coverage` showing the live catalog unchanged at 2 rows
 throughout).
+
+# Decision Log — Milestone 10
+
+## "Hide" an item is `visibility = 'archived'`, not a delete
+
+The spec asks for an "archive/hide item" action alongside delete. Modeled
+as a two-value `visibility` column (`visible`/`archived`) rather than a
+second boolean or a soft-delete `deleted_at` timestamp, so the meaning is
+unambiguous at the schema level: an archived item is fully intact —
+attached files and evidence links keep working — and is only ever
+excluded from *default views* (the Portfolio Center's main sections,
+resume summaries). It can be restored with a single write.
+
+## Profile strength deliberately has no input that could reward wealth or prestige
+
+`portfolio_items` has no cost/pay/school-tier column at all — the spec's
+fairness requirement ("do not treat wealth, school prestige, or paid
+activities as stronger") is satisfied structurally, not by a runtime
+exception list. `computeProfileStrength()` (`src/lib/portfolio/strength.ts`)
+only ever reads fields every item type has equally (type diversity, item
+count, dates/outcome/skills completeness, proof presence, application
+linkage) — a volunteer shift and a paid internship, documented identically,
+score identically. `tests/portfolio/strength.test.ts` asserts this
+directly by comparing a `volunteer_service` and a `work_experience` item
+with the same field values.
+
+## The random component of a storage filename replaces the original filename entirely — it isn't appended to it
+
+An earlier draft considered `<random>-<sanitized-original-name>` for
+`storage_path`, to keep filenames somewhat human-readable in the bucket.
+Dropped in favor of `<random>.<ext>` alone: a sanitizer can miss an edge
+case, but a path that never incorporates client-controlled text at all
+can't be traversed no matter what the sanitizer misses. The original
+filename is preserved for *display* in the `portfolio_files.original_filename`
+column, just never used to build a real filesystem/Storage path.
+
+## File upload is a Route Handler, everything else in this milestone is a Server Action
+
+Considered keeping 100% Server Actions for consistency with every prior
+milestone. Real, byte-level upload progress (an explicit spec requirement)
+isn't achievable through a Server Action's RPC-style invocation — only
+`XMLHttpRequest.upload.onprogress` against a normal HTTP endpoint provides
+it. `src/app/api/portfolio/files/route.ts` is the one Route Handler this
+milestone adds; it follows the same identity/ownership rules as every
+Server Action (see `security.md`), so the exception is about transport,
+not about weakening any access check.
+
+## Evidence-link "missing evidence" suggestions read only known-true requirement flags, never null or false
+
+`opportunities.essay_required`/`recommendation_required`/`transcript_required`
+are nullable — `null` is the common case (most listings don't have this
+extracted yet), and treating it as "yes, required" would be exactly the
+kind of unverified claim the spec explicitly forbids ("do not claim an
+application requires evidence unless it is explicitly known"). Only an
+explicit `true` produces a suggestion, and every suggestion's own label is
+prefixed `"Suggested:"` so the UI itself can't present it as a hard
+requirement even by accident.

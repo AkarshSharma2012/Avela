@@ -254,6 +254,45 @@ export type ReminderSource =
   | "application_plan"
   | "application_task";
 
+// Student Portfolio & Evidence Vault
+
+/** See supabase/migrations/20260802000000_student_portfolio.sql for the check constraint this mirrors. */
+export type PortfolioItemType =
+  | "activity"
+  | "award"
+  | "project"
+  | "leadership"
+  | "volunteer_service"
+  | "work_experience"
+  | "course"
+  | "certification"
+  | "skill"
+  | "essay_response"
+  | "recommendation_contact"
+  | "document"
+  | "link"
+  | "custom";
+
+/** "archived" is the student-facing "hide" action — never a delete. */
+export type PortfolioItemVisibility = "visible" | "archived";
+
+/** Mirrors src/lib/portfolio/constants.ts's ALLOWED_PORTFOLIO_MIME_TYPES verbatim — duplicated here for the same reason every other enum in this file is (types/database.ts stays a pure mirror of the schema, importing nothing from src/lib). */
+export type PortfolioFileMimeType =
+  | "application/pdf"
+  | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  | "image/png"
+  | "image/jpeg";
+
+export type EvidencePurpose =
+  | "resume"
+  | "essay"
+  | "recommendation"
+  | "transcript"
+  | "award_proof"
+  | "project_sample"
+  | "eligibility_proof"
+  | "other";
+
 export type Database = {
   public: {
     Tables: {
@@ -1109,6 +1148,141 @@ export type Database = {
           dedupe_key?: string | null;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_items: {
+        Row: {
+          id: string;
+          user_id: string;
+          item_type: PortfolioItemType;
+          title: string;
+          organization: string | null;
+          description: string | null;
+          start_date: string | null;
+          end_date: string | null;
+          is_current: boolean;
+          hours_per_week: number | null;
+          weeks_per_year: number | null;
+          role: string | null;
+          outcome: string | null;
+          skills: string[];
+          tags: string[];
+          url: string | null;
+          visibility: PortfolioItemVisibility;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          item_type: PortfolioItemType;
+          title: string;
+          organization?: string | null;
+          description?: string | null;
+          start_date?: string | null;
+          end_date?: string | null;
+          is_current?: boolean;
+          hours_per_week?: number | null;
+          weeks_per_year?: number | null;
+          role?: string | null;
+          outcome?: string | null;
+          skills?: string[];
+          tags?: string[];
+          url?: string | null;
+          visibility?: PortfolioItemVisibility;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          item_type?: PortfolioItemType;
+          title?: string;
+          organization?: string | null;
+          description?: string | null;
+          start_date?: string | null;
+          end_date?: string | null;
+          is_current?: boolean;
+          hours_per_week?: number | null;
+          weeks_per_year?: number | null;
+          role?: string | null;
+          outcome?: string | null;
+          skills?: string[];
+          tags?: string[];
+          url?: string | null;
+          visibility?: PortfolioItemVisibility;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_files: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string | null;
+          storage_path: string;
+          original_filename: string;
+          mime_type: PortfolioFileMimeType;
+          file_size: number;
+          label: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id?: string | null;
+          storage_path: string;
+          original_filename: string;
+          mime_type: PortfolioFileMimeType;
+          file_size: number;
+          label?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string | null;
+          storage_path?: string;
+          original_filename?: string;
+          mime_type?: PortfolioFileMimeType;
+          file_size?: number;
+          label?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      application_evidence_links: {
+        Row: {
+          id: string;
+          user_id: string;
+          application_plan_id: string;
+          portfolio_item_id: string;
+          evidence_purpose: EvidencePurpose;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          application_plan_id: string;
+          portfolio_item_id: string;
+          evidence_purpose: EvidencePurpose;
+          notes?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          application_plan_id?: string;
+          portfolio_item_id?: string;
+          evidence_purpose?: EvidencePurpose;
+          notes?: string | null;
+          created_at?: string;
         };
         Relationships: [];
       };

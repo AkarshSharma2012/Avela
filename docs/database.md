@@ -365,3 +365,111 @@ real ingestion against a live Supabase project. See
 `docs/opportunity-sources.md` for the source strategy this schema is
 meant to support, and `decision-log.md` for the assumptions made
 interpreting the spec's suggested-but-underspecified fields.
+
+---
+
+# Database — Milestone 10 additions (Student Portfolio & Evidence Vault)
+
+Migration: `supabase/migrations/20260802000000_student_portfolio.sql`
+(new file — no earlier migration was modified). Applies on top of every
+migration through `20260801000000_student_reminders.sql`, including the
+`application_plans` table `application_evidence_links` references.
+
+## New tables
+
+| Table | Purpose |
+|---|---|
+| `portfolio_items` | One row per piece of evidence a student has documented — activity, award, project, and eleven other types (see `item_type`'s check constraint). Entirely owner-scoped; never shown to another student. |
+| `portfolio_files` | Metadata for files uploaded to the private `student-portfolio` Storage bucket. `portfolio_item_id` is nullable — a file can exist "on file" before it's attached to a specific item. |
+| `application_evidence_links` | Attaches one `portfolio_items` row to one `application_plans` row for a specific purpose (resume, essay, transcript, etc.) — a reference, never a copy of the evidence itself. |
+
+## `portfolio_items`
+
+`visibility` (`'visible'` default, or `'archived'`) is the spec's "hide"
+action — never a delete. Two cross-field checks enforce real invariants
+the app layer also validates (`src/lib/portfolio/validation.ts`):
+`portfolio_items_current_no_end` (an item marked "still doing this" can't
+also carry a fixed `end_date`) and `portfolio_items_date_order`
+(`end_date` can't precede `start_date`).
+
+**Why fairness is a non-issue at the schema level:** there is no cost, pay,
+or prestige column on this table at all — `hours_per_week` and
+`weeks_per_year` describe time commitment only. The profile-strength
+scoring in `src/lib/portfolio/strength.ts` reads only fields every item
+type has equally (dates, outcome, skills, file/link presence), so a
+volunteer shift and a paid internship score identically for being
+documented the same way. See `decision-log.md`.
+
+Indexes: `user_id`; `(user_id, item_type)` (the Portfolio Center's
+by-type sections); `(user_id, visibility)`; a GIN index on `tags` (the tag
+filter).
+
+## `portfolio_files`
+
+`storage_path` is never client-supplied — it's always built by
+`buildPortfolioStoragePath()` (`src/lib/portfolio/storage.ts`) as
+`"<user_id>/<item_id-or-'unfiled'>/<random>.<ext>"`, using a
+server-generated random filename rather than the student's original one
+(kept separately, sanitized, in `original_filename`, for display only).
+`mime_type` is constrained to the same four-value allowlist the app layer
+checks (`ALLOWED_PORTFOLIO_MIME_TYPES`); `file_size` is bounded to a
+generous 20MB hard ceiling at the database layer, independent of the
+app's own tighter, easily-changed 10MB configurable limit
+(`MAX_PORTFOLIO_FILE_SIZE_BYTES`) — the two limits are deliberately not
+the same constant so the DB constraint never has to move in lockstep with
+the app-level one.
+
+Deleting a `portfolio_items` row cascades to its `portfolio_files` *rows*,
+but Postgres cascade has no reach into Supabase Storage — the actual
+Storage object is removed first, by application code
+(`src/lib/portfolio/actions.ts`'s `deletePortfolioItem`/`deletePortfolioFile`),
+before the DB row is ever deleted.
+
+## `application_evidence_links`
+
+`unique (application_plan_id, portfolio_item_id, evidence_purpose)` is the
+"duplicate link prevention" requirement — the same portfolio item can
+serve two different purposes on the same application (e.g. both `resume`
+and `project_sample`), but never the same (application, item, purpose)
+triple twice. `attachEvidenceLink()`
+(`src/lib/portfolio/evidence-repository.ts`) is select-then-insert with
+this constraint as the race-safety backstop, the same pattern
+`createOrReuseApplicationPlan` established in Milestone 8.
+
+## Supabase Storage — `student-portfolio` bucket
+
+Created (and kept private) by the migration itself via
+`insert into storage.buckets (...) ... public = false`, with a
+`file_size_limit` and `allowed_mime_types` matching the app's own
+constants as a first line of defense. Four `storage.objects` RLS
+policies (select/insert/update/delete) all reduce to one rule: a caller
+may only touch an object whose path's first segment
+(`(storage.foldername(name))[1]`) equals their own `auth.uid()`. Since
+every path is server-generated with the real session's user id as that
+first segment (see `portfolio_files` above), this is the entire
+access-control story for the bucket — no other policy, and no policy for
+`anon`, exists. See `security.md` for the full reasoning.
+
+## Applying the migration
+
+Same two options as every earlier milestone — see above. **This
+migration has not been applied to any live project.** Apply
+`supabase/migrations/20260802000000_student_portfolio.sql` before testing
+the Portfolio Center, an item workspace, file uploads, or the
+Applications page's Evidence section against a real Supabase project —
+and confirm the `student-portfolio` bucket was created (the migration
+creates it via SQL against `storage.buckets`, but some hosted Supabase
+projects require Storage to be enabled on the project first).
+
+## Regenerating types
+
+Once a real project has this migration applied, regenerate
+`src/types/database.ts` the same way every earlier milestone documented:
+
+```bash
+npx supabase gen types typescript --local > src/types/database.ts
+```
+
+The hand-written `portfolio_items`/`portfolio_files`/`application_evidence_links`
+entries in that file were written to match the migration exactly,
+including `Relationships: []` on all three.

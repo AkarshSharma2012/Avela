@@ -10,16 +10,20 @@ import { StatusSelect } from "@/components/applications/status-select";
 import { TargetDateInput } from "@/components/applications/target-date-input";
 import { TaskChecklist } from "@/components/applications/task-checklist";
 import { SaveButton } from "@/components/opportunities/save-button";
+import { EvidenceSection } from "@/components/portfolio/evidence-section";
 import { CustomReminderForm } from "@/components/reminders/custom-reminder-form";
 import { ReminderCard, type ReminderCardData } from "@/components/reminders/reminder-card";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getApplicationPlanBundle } from "@/lib/applications/repository";
 import { isOpportunityClosedOrExpired } from "@/lib/applications/opportunity-status";
+import { suggestMissingEvidence } from "@/lib/applications/evidence-suggestions";
 import { getAuthenticatedUser, requireProfile } from "@/lib/auth/dal";
 import { TYPE_LABELS } from "@/lib/opportunities/constants";
 import { formatShortDate } from "@/lib/opportunities/format";
 import { isOpportunitySaved } from "@/lib/opportunities/query";
+import { listEvidenceLinksForPlan } from "@/lib/portfolio/evidence-repository";
+import { listPortfolioItems } from "@/lib/portfolio/repository";
 import { listRemindersForPlan } from "@/lib/reminders/repository";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -58,12 +62,17 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
   }
 
   const { plan, opportunity, tasks } = bundle;
-  const [saved, planReminders] = await Promise.all([
+  const [saved, planReminders, evidenceLinks, portfolioItems] = await Promise.all([
     isOpportunitySaved(supabase, profile.id, opportunity.id),
     listRemindersForPlan(supabase, profile.id, plan.id),
+    listEvidenceLinksForPlan(supabase, profile.id, plan.id),
+    listPortfolioItems(supabase, profile.id),
   ]);
   const closedOrExpired = isOpportunityClosedOrExpired(opportunity);
   const reminderCards: ReminderCardData[] = planReminders.map((reminder) => ({ ...reminder, relatedHref: null, relatedLabel: null }));
+  const existingEvidencePurposes = new Set(evidenceLinks.map((link) => link.evidence_purpose));
+  const evidenceSuggestions = suggestMissingEvidence(opportunity, existingEvidencePurposes);
+  const availableEvidenceItems = portfolioItems.map((item) => ({ id: item.id, title: item.title }));
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-10 sm:py-12">
@@ -133,6 +142,15 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
 
         <Section id="checklist-heading" title="Checklist">
           <TaskChecklist planId={plan.id} initialTasks={tasks} />
+        </Section>
+
+        <Section id="evidence-heading" title="Evidence">
+          <EvidenceSection
+            applicationPlanId={plan.id}
+            links={evidenceLinks}
+            availableItems={availableEvidenceItems}
+            suggestions={evidenceSuggestions}
+          />
         </Section>
 
         <Section id="reminders-heading" title="Reminders">

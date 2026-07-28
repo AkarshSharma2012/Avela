@@ -265,3 +265,124 @@ automatically — `isLowConfidence()` exists specifically so a future
 ingestion job can gate on it, and `review-queue.ts`'s
 `low_confidence_grade` reason exists to route low-confidence values to a
 human rather than let them become a "verified" fact by default.
+
+---
+
+# Security — Milestone 10 additions (Student Portfolio & Evidence Vault)
+
+## The `student-portfolio` Storage bucket is private, with no public URL ever generated
+
+`storage.buckets.public = false` (see `database.md`). The only way to read
+a file's bytes is `createPortfolioFileSignedUrl()`
+(`src/lib/portfolio/repository.ts`), called only from
+`getPortfolioFileDownloadUrl` (`src/lib/portfolio/actions.ts`) after that
+Server Action has already resolved the file row through
+`getPortfolioFile(supabase, user.id, fileId)` — i.e. only after confirming
+the row belongs to the requesting session. The resulting signed URL
+expires after `PORTFOLIO_SIGNED_URL_EXPIRY_SECONDS` (5 minutes) and is
+never persisted anywhere — it's generated fresh on every "View" click, not
+baked into a page render, so a stale copy of a page can never leak a
+working link.
+
+## No user can read another user's files — storage-layer and app-layer, independently
+
+Two independent layers both have to agree before a file is ever readable:
+
+- **Storage RLS** (see `database.md`): every `storage.objects` policy on
+  the bucket reduces to `(storage.foldername(name))[1] = auth.uid()::text`.
+  Even a hypothetical bug in application code that requested the wrong
+  path would still be rejected by Postgres itself.
+- **The `portfolio_files` table's own RLS** (`auth.uid() = user_id`,
+  same pattern every owner-scoped table in this codebase uses) gates
+  whether a file's *row* — and therefore its `storage_path` — is even
+  visible to look up in the first place.
+
+`tests/portfolio/migration.test.ts` asserts both statically.
+
+## No path traversal — the storage path is never built from client input
+
+`buildPortfolioStoragePath()` (`src/lib/portfolio/storage.ts`) is the only
+function that ever constructs a `storage_path`, and it takes a
+server-resolved `userId` (from the authenticated session) and a
+server-resolved `portfolioItemId` (a real database row id, or `null`) —
+never anything typed by the student. The original filename a student
+picked is sanitized (`sanitizeOriginalFilename`: path separators and
+control characters stripped) but is *never* used to build the actual
+storage path — only a server-generated random id is, which is what
+closes off path traversal via a crafted filename like `../../etc/passwd`
+entirely, rather than relying on the sanitizer to catch every case.
+`tests/portfolio/storage.test.ts` covers this directly.
+
+## No arbitrary MIME type is ever trusted
+
+Every upload path — the Route Handler
+(`src/app/api/portfolio/files/route.ts`) — validates the browser-reported
+`file.type` against a fixed four-value allowlist
+(`validatePortfolioFileType`, `src/lib/portfolio/storage.ts`) before doing
+anything else with the file, and the `portfolio_files.mime_type` column
+has the same allowlist as a check constraint (defense-in-depth, in case
+any future write path skips the app-level check). Nothing executable
+(`.exe`, `.sh`, `.js`, etc.) is in the allowlist; a browser's mismatched
+or spoofed `Content-Type` for a disallowed extension is rejected the same
+way any other disallowed type is — the check is purely on the allowlisted
+value, never a trust-on-claim.
+
+## The server validates file size and type — never only the client
+
+The file `<input accept="...">` attribute and the client-side check in
+`file-upload-form.tsx` are UX only, exactly like every other client-side
+validation in this codebase. The authoritative checks
+(`validatePortfolioFileType`/`validatePortfolioFileSize`) run again inside
+the Route Handler, server-side, before the file ever reaches Supabase
+Storage — a request built by hand (skipping the form entirely) is
+validated identically.
+
+## Upload progress required a Route Handler, not a Server Action — documented, not smuggled in
+
+Every other mutation in this milestone is a plain `"use server"` action,
+consistent with the rest of the codebase. File upload is the one
+exception: real byte-level progress requires
+`XMLHttpRequest.upload.onprogress`, which only works against a normal
+HTTP endpoint, not a Server Action's RPC-style call. The Route Handler
+(`src/app/api/portfolio/files/route.ts`) follows the exact same identity
+rule as every Server Action here — `getAuthenticatedUser()` first, a
+401 if there's no session, every write scoped to that user's id — so this
+is a transport-layer difference only, not a weaker-auth code path.
+
+## No user can read another user's `portfolio_items`/`application_evidence_links`
+
+Same owner-only RLS pattern as every table in this codebase
+(`auth.uid() = user_id`). `application_evidence_links`' insert policy
+additionally reverifies both foreign references — the `application_plans`
+row and the `portfolio_items` row — belong to the same student before the
+insert is allowed, mirroring `application_tasks`' insert policy from
+Milestone 8. The Server Action layer (`attachEvidence` in
+`src/lib/portfolio/actions.ts`) reverifies the same two things itself,
+before ever calling the database, as defense-in-depth on top of RLS —
+never trusting that a client-supplied `applicationPlanId`/`portfolioItemId`
+pair actually belongs to the caller.
+
+## Deleting an item cleans up its files safely, in the right order
+
+`deletePortfolioItem` (`src/lib/portfolio/actions.ts`) removes the
+item's Storage objects *before* deleting the `portfolio_items` row. If
+the Storage removal fails, the DB delete is still attempted only after
+that point — but if it's the DB delete itself that fails, nothing is
+lost the student can't still see, since the item and its files remain
+exactly as they were (no partial, invisible state). This is necessary
+specifically because a Postgres `on delete cascade` (which safely cleans
+up the `portfolio_files` *rows*) has no reach into Supabase Storage —
+an orphaned Storage object with no owner-scoped row pointing at it would
+otherwise be unreachable and un-deletable through the app ever again.
+
+## No service-role key was introduced
+
+Every Supabase call in this milestone — Server Actions, the Route
+Handler, and every read on the Portfolio Center / item workspace / evidence
+pages — uses the ordinary server client built from the visitor's own
+session cookies (`src/lib/supabase/server.ts`), the same client every
+other milestone since Milestone 1 uses. `SUPABASE_SERVICE_ROLE_KEY`
+remains read in exactly the one place it always has been:
+`scripts/import-opportunities.ts`, unrelated to this milestone. Storage
+RLS (not a service-role bypass) is what makes upload/download/delete work
+under the student's own privileges.

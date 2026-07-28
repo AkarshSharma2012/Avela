@@ -9,6 +9,9 @@ export const PROTECTED_PATHS = [
   "/saved",
   "/profile",
   "/settings",
+  "/portfolio",
+  "/applications",
+  "/reminders",
 ];
 
 /** Routes that require an authenticated session at minimum. */

@@ -23,6 +23,21 @@ describe("isProtectedPath", () => {
     expect(isProtectedPath("/settings")).toBe(true);
   });
 
+  it("protects /portfolio and its item workspace pages", () => {
+    expect(isProtectedPath("/portfolio")).toBe(true);
+    expect(isProtectedPath("/portfolio/items/abc-123")).toBe(true);
+  });
+
+  it("protects /applications and its nested workspace pages", () => {
+    expect(isProtectedPath("/applications")).toBe(true);
+    expect(isProtectedPath("/applications/abc-123")).toBe(true);
+  });
+
+  it("protects /reminders and any nested paths", () => {
+    expect(isProtectedPath("/reminders")).toBe(true);
+    expect(isProtectedPath("/reminders/abc-123")).toBe(true);
+  });
+
   it("does not protect public routes", () => {
     expect(isProtectedPath("/login")).toBe(false);
     expect(isProtectedPath("/signup")).toBe(false);
@@ -31,6 +46,8 @@ describe("isProtectedPath", () => {
 
   it("does not falsely match similarly-prefixed paths", () => {
     expect(isProtectedPath("/dashboard-preview")).toBe(false);
+    expect(isProtectedPath("/applications-info")).toBe(false);
+    expect(isProtectedPath("/reminders-help")).toBe(false);
   });
 });
 

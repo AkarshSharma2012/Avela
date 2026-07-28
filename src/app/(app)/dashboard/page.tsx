@@ -14,10 +14,12 @@ import { FeaturedMatchCard } from "@/components/opportunities/featured-match-car
 import { FindMoreButton } from "@/components/opportunities/find-more-button";
 import { OpportunityCard } from "@/components/opportunities/opportunity-card";
 import type { RecommendationFeedbackState } from "@/components/opportunities/recommendation-feedback-controls";
+import { DashboardPortfolioCard } from "@/components/portfolio/dashboard-portfolio-card";
 import { buttonVariants } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NodeTrack, type TrackNode } from "@/components/ui/node-track";
+import { isActiveApplicationStatus } from "@/lib/applications/constants";
 import { getApplicationPlans } from "@/lib/applications/repository";
 import { buildDashboardApplicationSummary } from "@/lib/applications/summary";
 import { requireProfile } from "@/lib/auth/dal";
@@ -27,6 +29,9 @@ import {
   PREFERENCE_GROUPS,
   WEEKLY_AVAILABILITY_OPTIONS,
 } from "@/lib/onboarding/constants";
+import { buildPortfolioDashboardSummary } from "@/lib/portfolio/dashboard";
+import { countEvidenceLinksByPlan, listLinkedItemIdsForUser } from "@/lib/portfolio/evidence-repository";
+import { listAllFilesForUser, listPortfolioItems } from "@/lib/portfolio/repository";
 import { buildReminderDashboardSummary } from "@/lib/reminders/intelligence";
 import { formatReminderDateTime } from "@/lib/reminders/format";
 import { listRemindersForUser } from "@/lib/reminders/repository";
@@ -209,6 +214,28 @@ export default async function DashboardPage({
       tasks: bundle.tasks,
     }))
   );
+
+  const [portfolioItems, portfolioFiles, linkedPortfolioItemIds] = await Promise.all([
+    listPortfolioItems(supabase, profile.id),
+    listAllFilesForUser(supabase, profile.id),
+    listLinkedItemIdsForUser(supabase, profile.id),
+  ]);
+  const activePlanIds = applicationBundles
+    .filter((bundle) => isActiveApplicationStatus(bundle.plan.status))
+    .map((bundle) => bundle.plan.id);
+  const evidenceCountByPlanId = await countEvidenceLinksByPlan(supabase, profile.id, activePlanIds);
+  const fileCountByPortfolioItemId = new Map<string, number>();
+  for (const file of portfolioFiles) {
+    if (!file.portfolio_item_id) continue;
+    fileCountByPortfolioItemId.set(file.portfolio_item_id, (fileCountByPortfolioItemId.get(file.portfolio_item_id) ?? 0) + 1);
+  }
+  const portfolioSummary = buildPortfolioDashboardSummary({
+    items: portfolioItems.filter((item) => item.visibility === "visible"),
+    fileCountByItemId: fileCountByPortfolioItemId,
+    linkedItemIds: linkedPortfolioItemIds,
+    activePlanIds,
+    evidenceCountByPlanId,
+  });
 
   const reminderSummary = buildReminderDashboardSummary(reminders);
   const nextReminderPlan = reminderSummary.next?.application_plan_id
@@ -394,6 +421,20 @@ export default async function DashboardPage({
             >
               Continue application
             </Link>
+          </div>
+        </section>
+      )}
+
+      {portfolioItems.length > 0 && (
+        <section aria-labelledby="portfolio-heading" className="animate-fade-up mt-8">
+          <h2
+            id="portfolio-heading"
+            className="text-xs font-medium tracking-wide text-primary uppercase"
+          >
+            Portfolio
+          </h2>
+          <div className="mt-3">
+            <DashboardPortfolioCard summary={portfolioSummary} />
           </div>
         </section>
       )}
