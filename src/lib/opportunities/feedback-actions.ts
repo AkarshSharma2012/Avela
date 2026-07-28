@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { getAuthenticatedUser } from "@/lib/auth/dal";
 import { giveFeedbackForUser, removeFeedbackForUser, type FeedbackInput } from "@/lib/opportunities/feedback";
+import { validateRemindAt } from "@/lib/reminders/validation";
+import { syncRecommendationReminder } from "@/lib/reminders/sync";
 import { createClient } from "@/lib/supabase/server";
 import type { RecommendationFeedbackReason, RecommendationFeedbackType } from "@/types/database";
 
@@ -13,6 +15,30 @@ function revalidateFeedbackPages() {
   revalidatePath("/dashboard");
   revalidatePath("/opportunities");
   revalidatePath("/opportunities/[id]", "page");
+  revalidatePath("/reminders");
+}
+
+/** Mirrors a "remind me later" write (or removal) into student_reminders immediately — reuses the same recommendation_feedback row rather than a second, independent reminder record (spec section 7). Best-effort: never blocks the feedback write itself on its own failure. */
+async function resyncRecommendationReminder(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  opportunityId: string,
+  reminderAt: string | null
+) {
+  const { data: opportunity } = await supabase
+    .from("opportunities")
+    .select("title")
+    .eq("id", opportunityId)
+    .maybeSingle();
+  const opportunityTitle = opportunity?.title ?? "this opportunity";
+
+  await syncRecommendationReminder(
+    supabase,
+    userId,
+    reminderAt
+      ? { opportunityId, opportunityTitle, reminderAt }
+      : { opportunityId, opportunityTitle: null, reminderAt: null }
+  );
 }
 
 /**
@@ -83,7 +109,26 @@ export async function remindMeLater(opportunityId: string): Promise<FeedbackActi
     ? new Date(new Date(opportunity.application_deadline).getTime() - ONE_MONTH_MS)
     : new Date(Date.now() + ONE_MONTH_MS);
 
-  return writeFeedback(opportunityId, { feedbackType: "remind_later", reminderAt: reminderAt.toISOString() });
+  const result = await writeFeedback(opportunityId, { feedbackType: "remind_later", reminderAt: reminderAt.toISOString() });
+  if (!result.error) {
+    const user = await getAuthenticatedUser();
+    if (user) await resyncRecommendationReminder(supabase, user.id, opportunityId, reminderAt.toISOString());
+  }
+  return result;
+}
+
+/** "Remind me" with a student-chosen date (spec section 7's opportunity-detail date picker) — same underlying `remind_later` feedback row as `remindMeLater`, just with an explicit time instead of the one-month-before default. */
+export async function remindMeOnDate(opportunityId: string, reminderAt: string): Promise<FeedbackActionResult> {
+  const dateError = validateRemindAt(reminderAt);
+  if (dateError) return { error: dateError };
+
+  const result = await writeFeedback(opportunityId, { feedbackType: "remind_later", reminderAt });
+  if (!result.error) {
+    const user = await getAuthenticatedUser();
+    const supabase = await createClient();
+    if (user) await resyncRecommendationReminder(supabase, user.id, opportunityId, reminderAt);
+  }
+  return result;
 }
 
 /** Undo — removes the row outright rather than leaving a stale record, per the migration's own "never resurface unless explicitly reset" comment. */
@@ -105,6 +150,9 @@ export async function undoRecommendationFeedback(
   });
 
   if (!result.success) return { error: result.error };
+  if (user && feedbackType === "remind_later") {
+    await resyncRecommendationReminder(supabase, user.id, opportunityId, null);
+  }
   revalidateFeedbackPages();
   return {};
 }

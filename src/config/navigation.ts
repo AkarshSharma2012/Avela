@@ -1,4 +1,4 @@
-import { Bookmark, ClipboardList, Compass, LayoutDashboard, Settings, User, type LucideIcon } from "lucide-react";
+import { AlarmClock, Bookmark, ClipboardList, Compass, LayoutDashboard, Settings, User, type LucideIcon } from "lucide-react";
 
 export type NavItem = {
   label: string;
@@ -12,6 +12,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: "Opportunities", href: "/opportunities", icon: Compass },
   { label: "Saved", href: "/saved", icon: Bookmark },
   { label: "Applications", href: "/applications", icon: ClipboardList },
+  { label: "Reminders", href: "/reminders", icon: AlarmClock },
   { label: "Profile", href: "/profile", icon: User },
   { label: "Settings", href: "/settings", icon: Settings },
 ];

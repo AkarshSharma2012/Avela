@@ -7,6 +7,7 @@ import { ArrowLeft, ExternalLink, TriangleAlert } from "lucide-react";
 import { HelpMeApplyButton } from "@/components/applications/help-me-apply-button";
 import { EligibilityBadge } from "@/components/opportunities/eligibility-badge";
 import { MatchBadge } from "@/components/opportunities/match-badge";
+import { RemindMeButton } from "@/components/opportunities/remind-me-button";
 import { SaveButton } from "@/components/opportunities/save-button";
 import { VerificationBadge } from "@/components/opportunities/verification-badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -89,11 +90,19 @@ export default async function OpportunityDetailPage({
   const profile = await requireProfile();
 
   const supabase = await createClient();
-  const [opportunity, onboardingSummary, saved, existingPlan] = await Promise.all([
+  const [opportunity, onboardingSummary, saved, existingPlan, remindLaterFeedback] = await Promise.all([
     getOpportunityById(supabase, id),
     getOnboardingSummary(profile.id),
     isOpportunitySaved(supabase, profile.id, id),
     getApplicationPlanForOpportunity(supabase, profile.id, id),
+    supabase
+      .from("recommendation_feedback")
+      .select("reminder_at")
+      .eq("user_id", profile.id)
+      .eq("opportunity_id", id)
+      .eq("feedback_type", "remind_later")
+      .maybeSingle()
+      .then((result) => result.data),
   ]);
 
   if (!opportunity) {
@@ -306,6 +315,7 @@ export default async function OpportunityDetailPage({
             </a>
             <SaveButton opportunityId={opportunity.id} initiallySaved={saved} size="default" />
             <HelpMeApplyButton opportunityId={opportunity.id} initialPlanId={existingPlan?.id ?? null} />
+            <RemindMeButton opportunityId={opportunity.id} initialReminderAt={remindLaterFeedback?.reminder_at ?? null} />
           </div>
         </Section>
 

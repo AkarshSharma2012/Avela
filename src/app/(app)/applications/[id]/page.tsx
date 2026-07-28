@@ -10,13 +10,17 @@ import { StatusSelect } from "@/components/applications/status-select";
 import { TargetDateInput } from "@/components/applications/target-date-input";
 import { TaskChecklist } from "@/components/applications/task-checklist";
 import { SaveButton } from "@/components/opportunities/save-button";
+import { CustomReminderForm } from "@/components/reminders/custom-reminder-form";
+import { ReminderCard, type ReminderCardData } from "@/components/reminders/reminder-card";
 import { buttonVariants } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getApplicationPlanBundle } from "@/lib/applications/repository";
 import { isOpportunityClosedOrExpired } from "@/lib/applications/opportunity-status";
 import { getAuthenticatedUser, requireProfile } from "@/lib/auth/dal";
 import { TYPE_LABELS } from "@/lib/opportunities/constants";
 import { formatShortDate } from "@/lib/opportunities/format";
 import { isOpportunitySaved } from "@/lib/opportunities/query";
+import { listRemindersForPlan } from "@/lib/reminders/repository";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -54,8 +58,12 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
   }
 
   const { plan, opportunity, tasks } = bundle;
-  const saved = await isOpportunitySaved(supabase, profile.id, opportunity.id);
+  const [saved, planReminders] = await Promise.all([
+    isOpportunitySaved(supabase, profile.id, opportunity.id),
+    listRemindersForPlan(supabase, profile.id, plan.id),
+  ]);
   const closedOrExpired = isOpportunityClosedOrExpired(opportunity);
+  const reminderCards: ReminderCardData[] = planReminders.map((reminder) => ({ ...reminder, relatedHref: null, relatedLabel: null }));
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-10 sm:py-12">
@@ -125,6 +133,21 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
 
         <Section id="checklist-heading" title="Checklist">
           <TaskChecklist planId={plan.id} initialTasks={tasks} />
+        </Section>
+
+        <Section id="reminders-heading" title="Reminders">
+          <div className="flex flex-col gap-3">
+            {reminderCards.length === 0 ? (
+              <EmptyState title="No reminders yet." description="Add one below, or set a target date and due dates above to get automatic ones." />
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {reminderCards.map((reminder) => (
+                  <ReminderCard key={reminder.id} reminder={reminder} compact />
+                ))}
+              </ul>
+            )}
+            <CustomReminderForm applicationPlanId={plan.id} opportunityId={opportunity.id} />
+          </div>
         </Section>
       </div>
     </div>

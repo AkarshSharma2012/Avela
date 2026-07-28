@@ -236,6 +236,24 @@ export type ApplicationPlanStatus =
   | "rejected"
   | "withdrawn";
 
+// Deadline & Reminder Center
+
+/** See supabase/migrations/20260801000000_student_reminders.sql for the check constraints these mirror. */
+export type ReminderType =
+  | "opportunity_deadline"
+  | "target_submit_date"
+  | "application_task"
+  | "custom"
+  | "follow_up"
+  | "recommendation_reminder";
+
+export type ReminderSource =
+  | "automatic"
+  | "student_created"
+  | "recommendation_feedback"
+  | "application_plan"
+  | "application_task";
+
 export type Database = {
   public: {
     Tables: {
@@ -1032,6 +1050,63 @@ export type Database = {
           due_date?: string | null;
           completed_at?: string | null;
           sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      student_reminders: {
+        Row: {
+          id: string;
+          user_id: string;
+          opportunity_id: string | null;
+          application_plan_id: string | null;
+          application_task_id: string | null;
+          reminder_type: ReminderType;
+          title: string;
+          message: string | null;
+          remind_at: string;
+          completed_at: string | null;
+          dismissed_at: string | null;
+          snoozed_until: string | null;
+          source: ReminderSource;
+          dedupe_key: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          opportunity_id?: string | null;
+          application_plan_id?: string | null;
+          application_task_id?: string | null;
+          reminder_type: ReminderType;
+          title: string;
+          message?: string | null;
+          remind_at: string;
+          completed_at?: string | null;
+          dismissed_at?: string | null;
+          snoozed_until?: string | null;
+          source: ReminderSource;
+          dedupe_key?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          opportunity_id?: string | null;
+          application_plan_id?: string | null;
+          application_task_id?: string | null;
+          reminder_type?: ReminderType;
+          title?: string;
+          message?: string | null;
+          remind_at?: string;
+          completed_at?: string | null;
+          dismissed_at?: string | null;
+          snoozed_until?: string | null;
+          source?: ReminderSource;
+          dedupe_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };

@@ -235,6 +235,25 @@ export async function countApplicationTasks(supabase: Client, userId: string, pl
   return count ?? 0;
 }
 
+export async function getApplicationTask(
+  supabase: Client,
+  userId: string,
+  taskId: string
+): Promise<ApplicationTask | null> {
+  const { data, error } = await supabase
+    .from("application_tasks")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[applications] failed to load application task:", error.message);
+    return null;
+  }
+  return data;
+}
+
 export async function insertApplicationTask(
   supabase: Client,
   userId: string,

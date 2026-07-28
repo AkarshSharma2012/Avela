@@ -19,6 +19,8 @@ import {
   type UpdateTaskInput,
 } from "@/lib/applications/tasks";
 import { giveFeedbackForUser } from "@/lib/opportunities/feedback";
+import { isActiveApplicationStatus } from "@/lib/applications/constants";
+import { synchronizeRemindersForUser, syncPlanTargetReminders, syncTaskCompletion, syncTaskReminders } from "@/lib/reminders/sync";
 import { createClient } from "@/lib/supabase/server";
 
 export type ApplicationActionResult = { error?: string };
@@ -27,6 +29,7 @@ export type StartApplicationResult = { planId?: string; error?: string };
 function revalidateApplicationPages(planId?: string) {
   revalidatePath("/applications");
   revalidatePath("/dashboard");
+  revalidatePath("/reminders");
   if (planId) revalidatePath(`/applications/${planId}`);
 }
 
@@ -93,6 +96,11 @@ export async function startApplicationPlan(opportunityId: string): Promise<Start
     );
   }
 
+  // Best-effort — a new plan (and possibly a fresh starter checklist) can
+  // produce several new automatic reminders at once, so a single full
+  // resync is simpler and just as safe as several targeted ones here.
+  await synchronizeRemindersForUser(supabase, user.id);
+
   revalidateApplicationPages(result.planId);
   return { planId: result.planId };
 }
@@ -129,6 +137,24 @@ export async function addSuggestedTasks(planId: string): Promise<ApplicationActi
   return {};
 }
 
+/** Re-derives this plan's target-date reminders from its current (post-update) state — called whenever a status or target-date edit could have changed what's due. */
+async function resyncPlanTargetReminders(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  planId: string
+) {
+  const bundle = await repo.getApplicationPlanBundle(supabase, userId, planId);
+  if (!bundle) return;
+  await syncPlanTargetReminders(supabase, userId, {
+    planId: bundle.plan.id,
+    opportunityId: bundle.opportunity.id,
+    opportunityTitle: bundle.opportunity.title,
+    isActiveStatus: isActiveApplicationStatus(bundle.plan.status),
+    officialDeadline: bundle.plan.official_deadline,
+    targetSubmitDate: bundle.plan.target_submit_date,
+  });
+}
+
 export async function updateApplicationPlan(planId: string, input: UpdatePlanInput): Promise<ApplicationActionResult> {
   const user = await getAuthenticatedUser();
   if (!user) return { error: "You need to be signed in to update your application." };
@@ -151,6 +177,11 @@ export async function updateApplicationPlan(planId: string, input: UpdatePlanInp
   );
 
   if (!result.success) return { error: result.error };
+
+  if (input.status !== undefined || input.targetSubmitDate !== undefined) {
+    await resyncPlanTargetReminders(supabase, user.id, planId);
+  }
+
   revalidateApplicationPages(planId);
   return {};
 }
@@ -166,6 +197,22 @@ export async function deleteApplicationPlan(planId: string): Promise<Application
   if (!result.success) return { error: result.error };
   revalidateApplicationPages();
   return {};
+}
+
+/** Re-derives one task's own reminders from its current (post-update) state — called whenever a due-date edit could have changed what's due. */
+async function resyncTaskReminders(supabase: Awaited<ReturnType<typeof createClient>>, userId: string, taskId: string) {
+  const task = await repo.getApplicationTask(supabase, userId, taskId);
+  if (!task) return;
+  const bundle = await repo.getApplicationPlanBundle(supabase, userId, task.application_plan_id);
+  if (!bundle) return;
+  await syncTaskReminders(supabase, userId, {
+    taskId: task.id,
+    planId: task.application_plan_id,
+    opportunityTitle: bundle.opportunity.title,
+    title: task.title,
+    dueDate: task.due_date,
+    completedAt: task.completed_at,
+  });
 }
 
 export type AddTaskResult = { taskId?: string; error?: string };
@@ -188,6 +235,7 @@ export async function addApplicationTask(
   );
 
   if (!result.success) return { error: result.error };
+  if (input.dueDate) await resyncTaskReminders(supabase, user.id, result.taskId);
   revalidateApplicationPages(planId);
   return { taskId: result.taskId };
 }
@@ -201,6 +249,7 @@ export async function updateApplicationTask(taskId: string, input: UpdateTaskInp
   );
 
   if (!result.success) return { error: result.error };
+  if (user && input.dueDate !== undefined) await resyncTaskReminders(supabase, user.id, taskId);
   revalidateApplicationPages();
   return {};
 }
@@ -214,6 +263,10 @@ export async function setApplicationTaskCompletion(taskId: string, completed: bo
   );
 
   if (!result.success) return { error: result.error };
+  if (user) {
+    const task = await repo.getApplicationTask(supabase, user.id, taskId);
+    await syncTaskCompletion(supabase, user.id, taskId, task?.completed_at ?? null);
+  }
   revalidateApplicationPages();
   return {};
 }

@@ -27,6 +27,10 @@ import {
   PREFERENCE_GROUPS,
   WEEKLY_AVAILABILITY_OPTIONS,
 } from "@/lib/onboarding/constants";
+import { buildReminderDashboardSummary } from "@/lib/reminders/intelligence";
+import { formatReminderDateTime } from "@/lib/reminders/format";
+import { listRemindersForUser } from "@/lib/reminders/repository";
+import { synchronizeRemindersForUser } from "@/lib/reminders/sync";
 import type { ChosenForYouEntry } from "@/lib/opportunities/chosen-for-you";
 import { buildChosenForYou } from "@/lib/opportunities/chosen-for-you";
 import { TYPE_LABELS } from "@/lib/opportunities/constants";
@@ -191,7 +195,9 @@ export default async function DashboardPage({
       getFeedbackProfileForUser(supabase, profile.id),
       getDismissedOpportunityIds(supabase, profile.id),
       getApplicationPlans(supabase, profile.id),
+      synchronizeRemindersForUser(supabase, profile.id),
     ]);
+  const reminders = await listRemindersForUser(supabase, profile.id);
 
   const applicationSummary = buildDashboardApplicationSummary(
     applicationBundles.map((bundle) => ({
@@ -203,6 +209,18 @@ export default async function DashboardPage({
       tasks: bundle.tasks,
     }))
   );
+
+  const reminderSummary = buildReminderDashboardSummary(reminders);
+  const nextReminderPlan = reminderSummary.next?.application_plan_id
+    ? applicationBundles.find((bundle) => bundle.plan.id === reminderSummary.next?.application_plan_id)
+    : undefined;
+  const nextReminderHref = reminderSummary.next
+    ? nextReminderPlan
+      ? `/applications/${nextReminderPlan.plan.id}`
+      : reminderSummary.next.opportunity_id
+        ? `/opportunities/${reminderSummary.next.opportunity_id}`
+        : "/reminders"
+    : "/reminders";
 
   const matchProfileInput = buildMatchProfileInput(profile, onboardingSummary);
   const chosenForYou = buildChosenForYou(candidatePool, matchProfileInput, shown, {
@@ -299,6 +317,45 @@ export default async function DashboardPage({
           <NodeTrack nodes={JOURNEY} size="md" hideConnectorBelowSm />
         </div>
       </section>
+
+      {(reminderSummary.next || reminderSummary.overdueCount > 0 || reminderSummary.thisWeekCount > 0) && (
+        <section aria-labelledby="reminders-heading" className="animate-fade-up mt-8">
+          <h2
+            id="reminders-heading"
+            className="text-xs font-medium tracking-wide text-primary uppercase"
+          >
+            Next up
+          </h2>
+          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-foreground">
+              {reminderSummary.next && (
+                <span>
+                  <strong className="font-heading text-lg">{reminderSummary.next.title}</strong>
+                  {" — "}
+                  {formatReminderDateTime(reminderSummary.next.remind_at)}
+                </span>
+              )}
+              {reminderSummary.overdueCount > 0 && (
+                <span className="text-destructive">
+                  <strong className="font-heading text-lg">{reminderSummary.overdueCount}</strong>{" "}
+                  overdue
+                </span>
+              )}
+              {reminderSummary.thisWeekCount > 0 && (
+                <span className="text-text-secondary">
+                  <strong className="font-heading text-lg">{reminderSummary.thisWeekCount}</strong> due this week
+                </span>
+              )}
+            </div>
+            <Link
+              href={nextReminderHref}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
+            >
+              View reminders
+            </Link>
+          </div>
+        </section>
+      )}
 
       {(applicationSummary.activeCount > 0 || applicationSummary.overdueTaskCount > 0) && (
         <section aria-labelledby="applications-heading" className="animate-fade-up mt-8">
