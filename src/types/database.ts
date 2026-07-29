@@ -412,10 +412,28 @@ export type PossessionChallengeType = "repo_file" | "gist" | "issue" | "deployme
 
 export type PossessionChallengeStatus = "pending" | "confirmed" | "expired" | "revoked";
 
-// Verifier Legitimacy & Project Context (Milestone 10.7)
+// Verifier Legitimacy & Project Context (Milestone 10.7, widened in 10.8)
 
-/** See supabase/migrations/20260808000000_verifier_legitimacy_and_project_context.sql. */
-export type PortfolioItemProjectContext = "org_linked" | "personal_project";
+/**
+ * See supabase/migrations/20260808000000_verifier_legitimacy_and_project_context.sql
+ * and 20260813000000_activity_taxonomy_and_project_context.sql (Milestone
+ * 10.8 widening). 'org_linked' is a permanent legacy synonym of
+ * 'organization_project' — new code should prefer the latter; see
+ * src/lib/portfolio/project-context.ts.
+ */
+export type PortfolioItemProjectContext =
+  | "org_linked"
+  | "personal_project"
+  | "organization_project"
+  | "school_project"
+  | "team_project"
+  | "family_or_household"
+  | "community_project"
+  | "employment"
+  | "competition"
+  | "course_or_program"
+  | "independent_activity"
+  | "custom";
 
 export type VerificationFieldConfirmationField = "participation" | "role" | "dates" | "hours" | "outcome";
 
@@ -435,9 +453,9 @@ export type VerifierDomainClassification =
   | "repeated_verifier_pattern"
   | "manual_review_required";
 
-// Personal/Physical/Creative Project Flow (Milestone 10.7)
+// Personal/Physical/Creative Project Flow (Milestone 10.7, widened in 10.8)
 
-/** See supabase/migrations/20260809000000_personal_project_details.sql. */
+/** See supabase/migrations/20260809000000_personal_project_details.sql and 20260814000000_evidence_roles_expansion.sql (Milestone 10.8's nine additions, for universal category coverage). */
 export type PortfolioFileEvidenceRole =
   | "concept_or_plan"
   | "sketch_or_draft"
@@ -452,7 +470,16 @@ export type PortfolioFileEvidenceRole =
   | "event_or_display"
   | "receipt_or_material_record"
   | "process_log"
-  | "other";
+  | "other"
+  | "research_or_notes"
+  | "performance"
+  | "data_or_results"
+  | "code_or_source"
+  | "publication"
+  | "official_result"
+  | "teacher_confirmation"
+  | "coach_confirmation"
+  | "possession_or_control";
 
 /** Shared shape with PossessionChallengeStatus (identity.ts) — same four values, different owning table. */
 export type PortfolioPossessionChallengeStatus = "pending" | "confirmed" | "expired" | "revoked";
@@ -1371,6 +1398,8 @@ export type Database = {
           url: string | null;
           github_username: string | null;
           project_context: PortfolioItemProjectContext | null;
+          activity_category_key: string | null;
+          template_version: number;
           last_material_hash: string | null;
           material_hash_updated_at: string | null;
           visibility: PortfolioItemVisibility;
@@ -1396,6 +1425,8 @@ export type Database = {
           url?: string | null;
           github_username?: string | null;
           project_context?: PortfolioItemProjectContext | null;
+          activity_category_key?: string | null;
+          template_version?: number;
           last_material_hash?: string | null;
           material_hash_updated_at?: string | null;
           visibility?: PortfolioItemVisibility;
@@ -1421,6 +1452,8 @@ export type Database = {
           url?: string | null;
           github_username?: string | null;
           project_context?: PortfolioItemProjectContext | null;
+          activity_category_key?: string | null;
+          template_version?: number;
           last_material_hash?: string | null;
           material_hash_updated_at?: string | null;
           visibility?: PortfolioItemVisibility;
@@ -2123,6 +2156,168 @@ export type Database = {
           result?: string | null;
           improvement_ideas?: string | null;
           collaborators?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_entry_narrative: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          what_you_did: string;
+          why_you_did_it: string;
+          your_part: string;
+          who_it_helped: string | null;
+          materials_or_tools: string | null;
+          collaborators: string | null;
+          challenges: string | null;
+          result: string | null;
+          what_you_learned: string | null;
+          would_improve: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          what_you_did: string;
+          why_you_did_it: string;
+          your_part: string;
+          who_it_helped?: string | null;
+          materials_or_tools?: string | null;
+          collaborators?: string | null;
+          challenges?: string | null;
+          result?: string | null;
+          what_you_learned?: string | null;
+          would_improve?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          what_you_did?: string;
+          why_you_did_it?: string;
+          your_part?: string;
+          who_it_helped?: string | null;
+          materials_or_tools?: string | null;
+          collaborators?: string | null;
+          challenges?: string | null;
+          result?: string | null;
+          what_you_learned?: string | null;
+          would_improve?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_team_details: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          team_size: number | null;
+          student_role: string | null;
+          team_output: string | null;
+          personal_contribution: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          team_size?: number | null;
+          student_role?: string | null;
+          team_output?: string | null;
+          personal_contribution?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          team_size?: number | null;
+          student_role?: string | null;
+          team_output?: string | null;
+          personal_contribution?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_team_collaborators: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          name: string;
+          email: string | null;
+          role: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          name: string;
+          email?: string | null;
+          role?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          name?: string;
+          email?: string | null;
+          role?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_generic_profile_challenges: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string | null;
+          provider_key: string;
+          target_url: string;
+          challenge_token_hash: string;
+          status: PortfolioPossessionChallengeStatus;
+          expires_at: string;
+          confirmed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id?: string | null;
+          provider_key: string;
+          target_url: string;
+          challenge_token_hash: string;
+          status?: PortfolioPossessionChallengeStatus;
+          expires_at: string;
+          confirmed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string | null;
+          provider_key?: string;
+          target_url?: string;
+          challenge_token_hash?: string;
+          status?: PortfolioPossessionChallengeStatus;
+          expires_at?: string;
+          confirmed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

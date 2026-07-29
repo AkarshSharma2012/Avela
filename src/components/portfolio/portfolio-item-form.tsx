@@ -10,8 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PORTFOLIO_ITEM_TYPES } from "@/lib/portfolio/constants";
 import { createPortfolioItem, updatePortfolioItem } from "@/lib/portfolio/actions";
+import type { EntryNarrativeInput } from "@/lib/portfolio/entry-narrative";
 import type { PortfolioItemFields } from "@/lib/portfolio/item";
-import type { PortfolioItemType } from "@/types/database";
+import { PROJECT_CONTEXTS } from "@/lib/portfolio/project-context";
+import { PASSION_GROUPS, PASSION_GROUP_LABELS, listCategoriesByPassionGroup } from "@/lib/portfolio/taxonomy";
+import { resolveCategoryTemplate } from "@/lib/portfolio/templates";
+import type { PortfolioItemProjectContext, PortfolioItemType } from "@/types/database";
 import type { PortfolioItem } from "@/types/portfolio";
 
 const SELECT_CLASS =
@@ -36,6 +40,11 @@ type FormState = {
   tags: string;
   url: string;
   githubUsername: string;
+  activityCategoryKey: string;
+  projectContext: PortfolioItemProjectContext | "";
+  whatYouDid: string;
+  whyYouDidIt: string;
+  yourPart: string;
 };
 
 function toFormState(item?: PortfolioItem): FormState {
@@ -55,6 +64,11 @@ function toFormState(item?: PortfolioItem): FormState {
     tags: item?.tags.join(", ") ?? "",
     url: item?.url ?? "",
     githubUsername: item?.github_username ?? "",
+    activityCategoryKey: item?.activity_category_key ?? "",
+    projectContext: (item?.project_context as PortfolioItemProjectContext | null) ?? "",
+    whatYouDid: "",
+    whyYouDidIt: "",
+    yourPart: "",
   };
 }
 
@@ -82,7 +96,13 @@ function toFields(state: FormState): PortfolioItemFields {
     tags: splitList(state.tags),
     url: state.url.trim() === "" ? null : state.url.trim(),
     githubUsername: state.githubUsername.trim() === "" ? null : state.githubUsername.trim(),
+    activityCategoryKey: state.activityCategoryKey.trim() === "" ? null : state.activityCategoryKey.trim(),
+    projectContext: state.projectContext === "" ? null : state.projectContext,
   };
+}
+
+function toNarrative(state: FormState): EntryNarrativeInput {
+  return { whatYouDid: state.whatYouDid, whyYouDidIt: state.whyYouDidIt, yourPart: state.yourPart };
 }
 
 /** Used both to add a new item (/portfolio) and to edit an existing one (the item workspace page) — the same fields, the same validation, just a different submit target. */
@@ -121,7 +141,7 @@ function PortfolioItemForm({
         router.refresh();
         onSaved?.(item.id);
       } else {
-        const result = await createPortfolioItem(fields);
+        const result = await createPortfolioItem(fields, toNarrative(state));
         if (result.error || !result.itemId) {
           setError(result.error ?? "Couldn't save that item. Please try again.");
           return;
@@ -152,6 +172,98 @@ function PortfolioItemForm({
             ))}
           </select>
         </div>
+      )}
+
+      {!item && (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="item-category">What kind of activity or project is it?</Label>
+              <select
+                id="item-category"
+                className={SELECT_CLASS}
+                value={state.activityCategoryKey}
+                onChange={(event) => update("activityCategoryKey", event.target.value)}
+                disabled={isPending}
+              >
+                <option value="">Choose one (optional)</option>
+                {PASSION_GROUPS.map((group) => (
+                  <optgroup key={group} label={PASSION_GROUP_LABELS[group]}>
+                    {listCategoriesByPassionGroup(group).map((category) => (
+                      <option key={category.key} value={category.key}>
+                        {category.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="item-context">What&apos;s the context?</Label>
+              <select
+                id="item-context"
+                className={SELECT_CLASS}
+                value={state.projectContext}
+                onChange={(event) => update("projectContext", event.target.value as PortfolioItemProjectContext)}
+                disabled={isPending}
+              >
+                <option value="">Choose one (optional)</option>
+                {PROJECT_CONTEXTS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {(() => {
+            const template = resolveCategoryTemplate(state.activityCategoryKey || null, state.projectContext || null);
+            return (
+              <div className="flex flex-col gap-4 rounded-md border border-border bg-secondary/30 px-4 py-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="item-what-you-did">{template.requiredPrompts.whatPrompt}</Label>
+                  <textarea
+                    id="item-what-you-did"
+                    className={TEXTAREA_CLASS}
+                    rows={2}
+                    value={state.whatYouDid}
+                    onChange={(event) => update("whatYouDid", event.target.value)}
+                    placeholder="A sentence or two is enough."
+                    disabled={isPending}
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="item-why">{template.requiredPrompts.whyPrompt}</Label>
+                  <textarea
+                    id="item-why"
+                    className={TEXTAREA_CLASS}
+                    rows={2}
+                    value={state.whyYouDidIt}
+                    onChange={(event) => update("whyYouDidIt", event.target.value)}
+                    placeholder="A sentence or two is enough."
+                    disabled={isPending}
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="item-your-part">{template.requiredPrompts.yourPartPrompt}</Label>
+                  <textarea
+                    id="item-your-part"
+                    className={TEXTAREA_CLASS}
+                    rows={2}
+                    value={state.yourPart}
+                    onChange={(event) => update("yourPart", event.target.value)}
+                    placeholder="A sentence or two is enough."
+                    disabled={isPending}
+                    required
+                  />
+                </div>
+              </div>
+            );
+          })()}
+        </>
       )}
 
       <div className="flex flex-col gap-1.5">
@@ -330,7 +442,14 @@ function PortfolioItemForm({
       {error && <FieldError id="portfolio-item-form-error" errors={[error]} />}
 
       <div className="flex items-center gap-2">
-        <Button type="submit" disabled={isPending || state.title.trim().length === 0}>
+        <Button
+          type="submit"
+          disabled={
+            isPending ||
+            state.title.trim().length === 0 ||
+            (!item && (state.whatYouDid.trim().length === 0 || state.whyYouDidIt.trim().length === 0 || state.yourPart.trim().length === 0))
+          }
+        >
           {item ? "Save changes" : "Add item"}
         </Button>
         {onCancel && (

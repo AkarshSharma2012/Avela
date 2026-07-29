@@ -21,6 +21,7 @@ import {
   type PortfolioItemFields,
   type UpdatePortfolioItemInput,
 } from "@/lib/portfolio/item";
+import { validateEntryNarrativeInput, type EntryNarrativeInput } from "@/lib/portfolio/entry-narrative";
 import { buildInternalNarrative, validatePersonalProjectInput, type PersonalProjectInput } from "@/lib/portfolio/personal-project";
 import * as repo from "@/lib/portfolio/repository";
 import { hasConflictOfInterest, isAuthorizedReviewerAsync } from "@/lib/roles/access";
@@ -40,9 +41,21 @@ function revalidatePortfolioPages(itemId?: string) {
   if (itemId) revalidatePath(`/portfolio/items/${itemId}`);
 }
 
-export async function createPortfolioItem(input: PortfolioItemFields): Promise<CreateItemResult> {
+/**
+ * `narrative` is optional so every existing caller (the pre-Milestone-10.8
+ * long-form item creation path) keeps working unchanged — only the new
+ * low-friction flow (spec section 3) supplies it. When present, an invalid
+ * narrative fails the whole create rather than saving an item with a
+ * half-written required answer.
+ */
+export async function createPortfolioItem(input: PortfolioItemFields, narrative?: EntryNarrativeInput): Promise<CreateItemResult> {
   const user = await getAuthenticatedUser();
   if (!user) return { error: "You need to be signed in to add a portfolio item." };
+
+  if (narrative) {
+    const narrativeCheck = validateEntryNarrativeInput(narrative);
+    if (!narrativeCheck.valid) return { error: narrativeCheck.error };
+  }
 
   const supabase = await createClient();
   const result = await createPortfolioItemForUser(user.id, input, (userId, fields) =>
@@ -50,6 +63,24 @@ export async function createPortfolioItem(input: PortfolioItemFields): Promise<C
   );
 
   if (!result.success) return { error: result.error };
+
+  if (narrative && result.itemId) {
+    await repo.upsertEntryNarrative(supabase, {
+      user_id: user.id,
+      portfolio_item_id: result.itemId,
+      what_you_did: narrative.whatYouDid,
+      why_you_did_it: narrative.whyYouDidIt,
+      your_part: narrative.yourPart,
+      who_it_helped: narrative.whoItHelped ?? null,
+      materials_or_tools: narrative.materialsOrTools ?? null,
+      collaborators: narrative.collaborators ?? null,
+      challenges: narrative.challenges ?? null,
+      result: narrative.result ?? null,
+      what_you_learned: narrative.whatYouLearned ?? null,
+      would_improve: narrative.wouldImprove ?? null,
+    });
+  }
+
   revalidatePortfolioPages(result.itemId);
   return { itemId: result.itemId };
 }

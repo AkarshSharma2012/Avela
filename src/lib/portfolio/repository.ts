@@ -60,6 +60,8 @@ function toItemInsert(userId: string, input: PortfolioItemFields): Database["pub
     tags: input.tags ?? [],
     url: input.url ?? null,
     github_username: input.githubUsername ?? null,
+    activity_category_key: input.activityCategoryKey ?? null,
+    project_context: input.projectContext ?? null,
   };
 }
 
@@ -91,6 +93,8 @@ function toItemUpdate(patch: UpdatePortfolioItemInput): Database["public"]["Tabl
   if (patch.tags !== undefined) update.tags = patch.tags;
   if (patch.url !== undefined) update.url = patch.url;
   if (patch.githubUsername !== undefined) update.github_username = patch.githubUsername;
+  if (patch.activityCategoryKey !== undefined) update.activity_category_key = patch.activityCategoryKey;
+  if (patch.projectContext !== undefined) update.project_context = patch.projectContext;
   if (patch.visibility !== undefined) update.visibility = patch.visibility;
   return update;
 }
@@ -287,6 +291,81 @@ export async function upsertPersonalProjectDetails(
   row: PersonalProjectDetailsInsert
 ): Promise<{ error: string | null }> {
   const { error } = await supabase.from("portfolio_personal_project_details").upsert(row, { onConflict: "portfolio_item_id" });
+  return { error: error?.message ?? null };
+}
+
+// --- Universal entry narrative (Milestone 10.8) ----------------------------
+
+type EntryNarrativeRow = Database["public"]["Tables"]["portfolio_entry_narrative"]["Row"];
+type EntryNarrativeInsert = Database["public"]["Tables"]["portfolio_entry_narrative"]["Insert"];
+
+export async function getEntryNarrative(supabase: Client, userId: string, itemId: string): Promise<EntryNarrativeRow | null> {
+  const { data, error } = await supabase
+    .from("portfolio_entry_narrative")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("portfolio_item_id", itemId)
+    .maybeSingle();
+  if (error) {
+    console.error("[portfolio] failed to load entry narrative:", error.message);
+    return null;
+  }
+  return data;
+}
+
+/** Upserted on the migration's unique(portfolio_item_id) — saving again always replaces the prior answers rather than erroring or duplicating. */
+export async function upsertEntryNarrative(supabase: Client, row: EntryNarrativeInsert): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("portfolio_entry_narrative").upsert(row, { onConflict: "portfolio_item_id" });
+  return { error: error?.message ?? null };
+}
+
+// --- Team-project details & collaborators (Milestone 10.8) ----------------
+
+type TeamDetailsRow = Database["public"]["Tables"]["portfolio_team_details"]["Row"];
+type TeamDetailsInsert = Database["public"]["Tables"]["portfolio_team_details"]["Insert"];
+type TeamCollaboratorRow = Database["public"]["Tables"]["portfolio_team_collaborators"]["Row"];
+type TeamCollaboratorInsert = Database["public"]["Tables"]["portfolio_team_collaborators"]["Insert"];
+
+export async function getTeamDetails(supabase: Client, userId: string, itemId: string): Promise<TeamDetailsRow | null> {
+  const { data, error } = await supabase
+    .from("portfolio_team_details")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("portfolio_item_id", itemId)
+    .maybeSingle();
+  if (error) {
+    console.error("[portfolio] failed to load team details:", error.message);
+    return null;
+  }
+  return data;
+}
+
+export async function upsertTeamDetails(supabase: Client, row: TeamDetailsInsert): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("portfolio_team_details").upsert(row, { onConflict: "portfolio_item_id" });
+  return { error: error?.message ?? null };
+}
+
+export async function listTeamCollaborators(supabase: Client, userId: string, itemId: string): Promise<TeamCollaboratorRow[]> {
+  const { data, error } = await supabase
+    .from("portfolio_team_collaborators")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("portfolio_item_id", itemId)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("[portfolio] failed to load team collaborators:", error.message);
+    return [];
+  }
+  return data ?? [];
+}
+
+export async function addTeamCollaborator(supabase: Client, row: TeamCollaboratorInsert): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("portfolio_team_collaborators").insert(row);
+  return { error: error?.message ?? null };
+}
+
+export async function removeTeamCollaborator(supabase: Client, userId: string, collaboratorId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("portfolio_team_collaborators").delete().eq("user_id", userId).eq("id", collaboratorId);
   return { error: error?.message ?? null };
 }
 

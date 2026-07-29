@@ -10,6 +10,7 @@ import { normalizeGithubUsername } from "@/lib/osint/github-identity";
 import {
   normalizeSkills,
   normalizeTags,
+  validateActivityCategoryKey,
   validateGithubUsername,
   validateHoursPerWeek,
   validateItemCurrentEnd,
@@ -22,7 +23,7 @@ import {
   validateItemUrl,
   validateWeeksPerYear,
 } from "@/lib/portfolio/validation";
-import type { PortfolioItemType, PortfolioItemVisibility } from "@/types/database";
+import type { PortfolioItemProjectContext, PortfolioItemType, PortfolioItemVisibility } from "@/types/database";
 
 export type ItemMutationResult = { success: true } | { success: false; error: string };
 export type ItemCreateResult = { success: true; itemId: string } | { success: false; error: string };
@@ -44,6 +45,9 @@ export type PortfolioItemFields = {
   url?: string | null;
   /** Connected GitHub identity for this item's repository (any format github-identity.ts accepts) — normalized before it's ever stored. */
   githubUsername?: string | null;
+  /** Milestone 10.8 universal taxonomy key (src/lib/portfolio/taxonomy.ts) — never validated against a fixed list here, only length-bounded; an unrecognized key just resolves through the generic fallback template. */
+  activityCategoryKey?: string | null;
+  projectContext?: PortfolioItemProjectContext | null;
 };
 
 export type UpdatePortfolioItemInput = Partial<PortfolioItemFields> & {
@@ -78,6 +82,10 @@ function validateItemFields(input: Partial<PortfolioItemFields>): string | null 
   }
   if (input.githubUsername !== undefined) {
     const error = validateGithubUsername(input.githubUsername ?? null);
+    if (error) return error;
+  }
+  if (input.activityCategoryKey !== undefined) {
+    const error = validateActivityCategoryKey(input.activityCategoryKey ?? null);
     if (error) return error;
   }
   if (input.hoursPerWeek !== undefined) {

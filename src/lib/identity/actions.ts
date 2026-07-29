@@ -18,7 +18,19 @@ import { revalidatePath } from "next/cache";
 
 import { getAuthenticatedUser } from "@/lib/auth/dal";
 import { applyDimensionTransition, createClaimsServiceRoleClient, ensureDimensionRow, listDimensionsForUser, markDimensionStale, studentUpdateDimension } from "@/lib/claims/repository";
-import { MAX_POSSESSION_CHALLENGES_PER_WINDOW, POSSESSION_CHALLENGE_RATE_WINDOW_SECONDS } from "@/lib/identity/constants";
+import {
+  GENERIC_PROFILE_CHALLENGE_RATE_WINDOW_SECONDS,
+  MAX_GENERIC_PROFILE_CHALLENGES_PER_WINDOW,
+  MAX_POSSESSION_CHALLENGES_PER_WINDOW,
+  POSSESSION_CHALLENGE_RATE_WINDOW_SECONDS,
+} from "@/lib/identity/constants";
+import * as genericChallengeRepo from "@/lib/identity/generic-profile-challenge-repository";
+import {
+  generateGenericProfileChallenge,
+  validateGenericChallengeTargetUrl,
+  validateProviderForGenericChallenge,
+  verifyGenericProfileChallenge,
+} from "@/lib/identity/generic-profile-challenge";
 import { fetchGithubAuthenticatedUser, isGithubOauthConfigured, listGithubUserRepositories, type GithubOauthRepo } from "@/lib/identity/github-oauth";
 import { generatePossessionChallenge, verifyPossessionChallenge } from "@/lib/identity/possession-challenge";
 import * as identityRepo from "@/lib/identity/repository";
@@ -287,4 +299,95 @@ export async function confirmGithubPossessionChallenge(challengeId: string, pres
 /** async because this lives in a "use server" file — every export here becomes a Server Action, and Next.js requires each one to be async regardless of whether it awaits anything. */
 export async function isGithubConnectAvailable(): Promise<boolean> {
   return isGithubOauthConfigured();
+}
+
+// --- Generic (any-provider) public-profile control challenge (Milestone 10.8, spec section 10) ---
+
+export type RequestGenericProfileChallengeResult = { rawToken: string; challengeId: string; expiresAt: string } | { error: string };
+
+export async function requestGenericProfileChallenge(
+  itemId: string | null,
+  providerKey: string,
+  targetUrl: string
+): Promise<RequestGenericProfileChallengeResult> {
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "You need to be signed in." };
+
+  const providerCheck = validateProviderForGenericChallenge(providerKey);
+  if (!providerCheck.valid) return { error: providerCheck.error };
+
+  const urlCheck = validateGenericChallengeTargetUrl(targetUrl);
+  if (!urlCheck.valid) return { error: urlCheck.error };
+
+  const supabase = await createClient();
+  if (itemId) {
+    const item = await portfolioRepo.getPortfolioItem(supabase, user.id, itemId);
+    if (!item) return { error: "Couldn't find that portfolio item." };
+  }
+
+  const since = new Date(Date.now() - GENERIC_PROFILE_CHALLENGE_RATE_WINDOW_SECONDS * 1000).toISOString();
+  const recentCount = await genericChallengeRepo.countRecentGenericProfileChallenges(supabase, user.id, since);
+  if (recentCount >= MAX_GENERIC_PROFILE_CHALLENGES_PER_WINDOW) {
+    return { error: "You've reached the limit for this request type — try again later." };
+  }
+
+  const { rawToken, tokenHash, expiresAt } = generateGenericProfileChallenge();
+  const { challenge, error } = await genericChallengeRepo.createGenericProfileChallenge(supabase, user.id, {
+    portfolioItemId: itemId,
+    providerKey,
+    targetUrl,
+    tokenHash,
+    expiresAt,
+  });
+  if (error || !challenge) return { error: "Couldn't start that check right now. Please try again." };
+
+  return { rawToken, challengeId: challenge.id, expiresAt };
+}
+
+export async function confirmGenericProfileChallenge(challengeId: string, presentedToken: string): Promise<IdentityActionResult> {
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "You need to be signed in." };
+
+  const supabase = await createClient();
+  const challenge = await genericChallengeRepo.getGenericProfileChallenge(supabase, user.id, challengeId);
+  if (!challenge || challenge.status !== "pending") return { error: "This check is no longer available." };
+
+  const result = await verifyGenericProfileChallenge(
+    { tokenHash: challenge.challenge_token_hash, expiresAt: challenge.expires_at },
+    presentedToken,
+    challenge.target_url
+  );
+  if (!result.ok) {
+    if (result.reason === "expired") await genericChallengeRepo.markGenericProfileChallengeExpired(supabase, user.id, challengeId);
+    return { error: "We couldn't confirm that yet. You can still add evidence instead." };
+  }
+
+  await genericChallengeRepo.markGenericProfileChallengeConfirmed(supabase, user.id, challengeId);
+
+  if (challenge.portfolio_item_id) {
+    const { result: dimensionRow } = await ensureDimensionRow(supabase, user.id, challenge.portfolio_item_id, "account_or_asset_control");
+    if (dimensionRow) {
+      const serviceClient = createClaimsServiceRoleClient();
+      await applyDimensionTransition(serviceClient, dimensionRow, {
+        status: "strongly_supported",
+        actorType: "system",
+        reason: "Confirmed by placing a one-time code at the claimed location.",
+        evidenceRef: { field_confirmation_id: challengeId },
+      });
+    }
+  }
+
+  revalidatePath("/portfolio");
+  return {};
+}
+
+/** Lets a student remove a pending challenge (e.g. after removing the code from the page) without waiting for it to expire on its own. */
+export async function revokeGenericProfileChallenge(challengeId: string): Promise<IdentityActionResult> {
+  const user = await getAuthenticatedUser();
+  if (!user) return { error: "You need to be signed in." };
+
+  const supabase = await createClient();
+  const { error } = await genericChallengeRepo.revokeGenericProfileChallenge(supabase, user.id, challengeId);
+  if (error) return { error: "Couldn't update that check. Please try again." };
+  return {};
 }

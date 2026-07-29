@@ -23,6 +23,8 @@ function makeItem(overrides: Partial<PortfolioItem> = {}): PortfolioItem {
     url: null,
     github_username: null,
     project_context: null,
+    activity_category_key: null,
+    template_version: 1,
     last_material_hash: null,
     material_hash_updated_at: null,
     visibility: "visible",

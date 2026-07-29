@@ -468,3 +468,57 @@ raises a risk level or routes to a human reviewer queue.
 - **Reviewer-only, never shown to the subject student**: `integrity_signals`, `integrity_reviews` — these exist to route human review, not to accuse a student, and showing "you have been flagged" to the person being evaluated would itself be the harm the spec asks to avoid.
 - **Never collected, anywhere, by design**: facial recognition, home address, phone number, relatives, private/login-gated social media, school schedules, leaked databases, people-search results. No connector or provider added this milestone reads any of these.
 - **Minors**: every new student-facing prompt (personal-project narrative, possession-challenge photo) explicitly never requires a face or location; EXIF is stripped before any image is retained past the possession check.
+
+---
+
+# Security — Milestone 10.8 additions (Universal Portfolio Coverage, Multi-Provider Identity, Low-Friction Verification, Autonomous Testing)
+
+## Threat model
+
+Same neutral-language, no-single-signal-proves-everything posture as Milestone 10.7, extended to a ~110-category taxonomy and a ~130-provider registry instead of GitHub alone. Two structural rules apply everywhere in this milestone: (1) no category or provider is ever hard-coded to require an organization, evidence, or a connected account — every requirement flows through `project-context.ts`'s visibility rules, which a category can only ever tighten never loosen; (2) no provider is ever shown as "Connect"-able unless the registry (`provider-registry-data.ts`) honestly marks it `oauth`/`proof_of_control` *and* `isProviderAvailable()` confirms it's actually configured.
+
+### Taxonomy, context, and template spoofing
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Submitting an invalid or made-up `activity_category_key` | Length bound only (DB `check`); resolution always goes through `resolveCategory()` | Whether a category is "real" in some absolute sense — the taxonomy is deliberately open-ended | Unknown keys resolve to `GENERIC_CATEGORY_FALLBACK` and its generic template — never rejected, never a blocking error | n/a — by design, this is a supported path (future categories) | No difference in experience; the item saves normally with generic prompts | No |
+| Choosing a low-scrutiny category/context to avoid an org requirement for org-affiliated work | Nothing — Avela cannot verify where an activity "really" happened | Ground truth about the activity | `orgRequired` only ever gates a *field being shown as required*, never blocks saving either way, so there is no incentive structure to game — misclassifying doesn't unlock a score or verification advantage `strength.ts` doesn't already grant identically | n/a — no automated detection; not a scoring exploit because category/context never feed `strength.ts` | n/a | n/a |
+| Cross-category fairness gaming (choosing whichever category "counts more") | `itemTypeBucket` mapping is fixed per category, not student-chosen | n/a | Every category maps to one of the 14 existing `item_type` buckets, all of which `strength.ts` has always scored identically (`strength-fairness.test.ts`); there is no higher- or lower-value category to pick | n/a | n/a | n/a |
+
+### Generic public-profile control challenge (TIER 2, any provider)
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Pointing the challenge at an internal/private network address | Resolved IP via `resolvesToPrivateAddress()` (reused from `url-safety.ts`) | n/a | `generic-profile-challenge.ts` routes every target URL through `safeFetch`'s existing SSRF layer, plus its own HTTPS-only pre-check (stricter than `safeFetch`'s general http-or-https allowance) | Blocked at fetch time (`blocked_private_address`) | "We couldn't confirm that yet. You can still add evidence instead." | No |
+| Claiming an unimplemented/unverified provider as connectable | Registry tier + `isProviderAvailable()` | n/a | `validateProviderForGenericChallenge()` rejects any provider whose tier isn't `proof_of_control`, before a challenge is ever created — GitHub (`oauth`), public-link-only, and unsupported providers can never reach this flow | n/a — rejected at request time | "That provider isn't available yet. You can add a public link instead." | No |
+| Reusing an old/expired challenge code found elsewhere | Hash-only comparison + expiry timestamp | n/a | Same `generatePossessionChallenge`/`verifyPossessionChallenge` hash-and-expire logic already proven in Milestone 10.7 — reused verbatim, not reimplemented | `expired`/`token_mismatch` classified results | "We couldn't confirm that yet." | No |
+| A page happening to contain the exact challenge string by coincidence | Nothing beyond string presence — same limitation the GitHub fallback already has | Genuine authorship or control, ever, from a string match alone | Confirms *control of the page at that moment* only — never authorship, never impact; documented explicitly in the table's `comment on table` and in `generic-profile-challenge.ts`'s own header comment | n/a | The confirmed dimension is `account_or_asset_control` only, never `authorship_or_contribution` | n/a |
+
+### Provider-registry honesty
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Registry claims OAuth support for a provider with no real integration | Code review / `provider-registry.test.ts`'s "only GitHub is tier oauth" assertion | n/a | Structural: `oauthProvider()` is only ever called once, for GitHub, in `provider-registry-data.ts`; every other of the ~130 entries uses `challengeProvider`/`linkOnlyProvider`/`unsupportedProvider`, which never claim `oauthSupport: true` | Test fails if a future edit adds a second `oauthProvider()` call without also shipping the real OAuth flow | A student is never shown a "Connect" button that can't actually complete | No — caught in CI/tests before it ships |
+| An OAuth-tier provider shown as connectable while unconfigured | `isProviderAvailable()` checks every required env var is actually set | n/a | Fails closed exactly like `isGithubOauthConfigured()` — GitHub's own required-env-var list lives on its registry entry, checked generically | n/a — prevented, not detected | "That provider isn't available yet. You can add a public link instead." | No |
+
+### Team-project authorship
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Implying sole authorship of a team project by leaving `personal_contribution` blank | Presence/absence of the field only | True division of labor | `team_output` and `personal_contribution` are separate columns and separate UI fields everywhere — never merged, never inferred from each other; `hasDistinctPersonalContribution()` is a display hint only, never a score input | n/a — `strength.ts` reads neither field, so there is no score to game | n/a | n/a |
+| Listing collaborators without their knowledge to pad legitimacy | Nothing — no verification of a collaborator's own account exists (email is optional, per spec, precisely so this data is never treated as authoritative) | Whether a listed collaborator actually agreed | Collaborator rows are private (owner-only RLS `select`), never publicly exposed, never contribute to profile-strength scoring, and email is explicitly optional so the feature can't be mistaken for a verification mechanism | n/a | n/a | n/a |
+
+### E2E test-account isolation
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Result | Human review |
+|---|---|---|---|---|---|---|
+| E2E seed/cleanup scripts accidentally running against the production Supabase project | `E2E_SUPABASE_URL` vs. `NEXT_PUBLIC_SUPABASE_URL` string comparison, normalized (case/trailing-slash insensitive) | n/a | `requireIsolatedE2eBackend()` throws before any client is constructed if the two URLs match, or if any of `E2E_SUPABASE_URL`/`E2E_SUPABASE_ANON_KEY`/`E2E_SUPABASE_SERVICE_ROLE_KEY` is unset — there is no fallback path to the app's production env vars anywhere in `src/lib/e2e/*` | `config.test.ts`'s "never falls back to production" suite | Script exits with a clear error, writes nothing | No — structural, not a runtime judgment call |
+| A cleanup sweep deleting a real (non-E2E) account | `user_metadata.e2e_test === true` AND email ends in `@e2e.avela.invalid` — both required | n/a | `isGenuineE2eUser()`/`deleteSingleE2eUser()` both re-verify server-side; a single matching marker is never enough (tested explicitly against a user with only one of the two) | `cleanup.test.ts`'s spoofed-single-marker cases | Real accounts are never candidates, dry-run or real | No |
+| A parallel Playwright test's teardown deleting another concurrently-running test's persona | Per-test teardown targets one `userId` only | n/a | `deleteSingleE2eUser()` (not the global `cleanupE2ePersonas()` sweep) is what the Playwright fixture's teardown calls — the global sweep is reserved for an explicit, separate `npm run e2e:cleanup` pass | n/a | n/a | n/a |
+| Playwright driving a browser against the real production app | `NEXT_PUBLIC_APP_URL` (production) vs. the hardcoded local `baseURL` in `playwright.config.ts` | n/a | `playwright.config.ts` hardcodes `http://localhost:3100` and never reads `NEXT_PUBLIC_APP_URL`; the local dev server it spawns is handed the isolated E2E Supabase credentials via the `webServer.env` override, not inherited from the ambient shell environment | n/a | n/a | n/a |
+
+## Data classifications introduced this milestone
+
+- **Never falls back to production, structurally**: `src/lib/e2e/*` and `playwright.config.ts` only ever read `E2E_SUPABASE_URL`/`E2E_SUPABASE_ANON_KEY`/`E2E_SUPABASE_SERVICE_ROLE_KEY` — the app's normal `NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are read only to *compare against* (reject a match), never to connect.
+- **Owner-only, never public**: `portfolio_team_collaborators` (name/email/role), `portfolio_entry_narrative`, `portfolio_generic_profile_challenges` — same RLS posture as every other student-owned table introduced in prior milestones.
+- **Never collected this milestone either**: no new provider integration reads followers, stars, views, likes, ratings, revenue, or GPS/workout data — `strava`/`chess_com`/etc. registry entries are explicitly scoped to profile-bio proof-of-control only, documented in their own limitations field.

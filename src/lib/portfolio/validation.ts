@@ -20,6 +20,7 @@ export const MAX_TAGS = 20;
 export const MAX_SKILLS = 20;
 export const MAX_HOURS_PER_WEEK = 168;
 export const MAX_WEEKS_PER_YEAR = 52;
+export const MAX_ACTIVITY_CATEGORY_KEY_LENGTH = 100;
 
 export function validateItemTitle(title: string): string | null {
   if (title.trim().length === 0) return "Give this item a title.";
@@ -110,6 +111,14 @@ export function validateWeeksPerYear(weeksPerYear: number | null): string | null
 
 export function validateEvidenceNotes(notes: string | null): string | null {
   if (notes !== null && notes.length > MAX_EVIDENCE_NOTES_LENGTH) return "Notes are too long.";
+  return null;
+}
+
+/** Never rejects an unrecognized key — taxonomy.ts's resolveCategory() always falls back safely at read time. This only guards the migration's length bound so a save never hits a raw DB error. */
+export function validateActivityCategoryKey(activityCategoryKey: string | null): string | null {
+  if (activityCategoryKey !== null && activityCategoryKey.length > MAX_ACTIVITY_CATEGORY_KEY_LENGTH) {
+    return "That category key is too long.";
+  }
   return null;
 }
 

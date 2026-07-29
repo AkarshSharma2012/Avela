@@ -25,6 +25,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/verification/wizard/github-step", () => ({
   GithubStep: () => <div data-testid="step-content">connect-account-step</div>,
 }));
+vi.mock("@/components/verification/wizard/generic-profile-challenge-step", () => ({
+  GenericProfileChallengeStep: ({ provider }: { provider: { studentFacingName: string } }) => (
+    <div data-testid="step-content">connect-account-step:{provider.studentFacingName}</div>
+  ),
+}));
 vi.mock("@/components/verification/wizard/evidence-step", () => ({
   EvidenceStep: ({ initialAnswers }: { initialAnswers: { whatYouMade: string } }) => (
     <div data-testid="step-content">add-files-step:{initialAnswers.whatYouMade || "(empty)"}</div>
@@ -64,7 +69,7 @@ let currentItemId = "item-0";
 
 function baseProps(overrides: Partial<React.ComponentProps<typeof PortfolioSupportSection>> = {}) {
   return {
-    item: { id: currentItemId, title: "Robotics Club", role: null },
+    item: { id: currentItemId, title: "Robotics Club", role: null, activity_category_key: "coding" },
     files: [],
     verification: null,
     requestStatus: "not_requested" as const,
@@ -171,6 +176,36 @@ describe("PortfolioSupportSection — guided wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /^back$/i }));
     expect(screen.getByTestId("step-content").textContent).toContain("A trebuchet");
     unmount();
+  });
+
+  it("never offers 'Connect an account' for a category with no relevant provider (e.g. family responsibility)", () => {
+    render(<PortfolioSupportSection {...baseProps({ item: { id: currentItemId, title: "Helping at home", role: null, activity_category_key: "family_responsibility" } })} />);
+    openWizard();
+    expect(screen.queryByRole("radio", { name: /connect an account/i })).toBeNull();
+    // The rest of the methods stay available — family/home work is never blocked from support entirely.
+    expect(screen.getByRole("radio", { name: /add photos or files/i })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /show my process/i })).toBeTruthy();
+  });
+
+  it("offers 'Connect an account' for a category with a relevant, connectable provider (e.g. painting)", () => {
+    render(<PortfolioSupportSection {...baseProps({ item: { id: currentItemId, title: "A watercolor series", role: null, activity_category_key: "painting" } })} />);
+    openWizard();
+    expect(screen.getByRole("radio", { name: /connect an account/i })).toBeTruthy();
+  });
+
+  it("routes 'Connect an account' to the generic (non-GitHub) challenge step for a non-coding category", () => {
+    render(<PortfolioSupportSection {...baseProps({ item: { id: currentItemId, title: "A watercolor series", role: null, activity_category_key: "painting" } })} />);
+    openWizard();
+    fireEvent.click(screen.getByRole("radio", { name: /connect an account/i }));
+    expect(screen.getByTestId("step-content").textContent).toContain("connect-account-step:");
+    expect(screen.queryByText("connect-account-step")).toBeNull(); // never the GitHub step for this category
+  });
+
+  it("'Show my process' reuses the same evidence step as 'Add photos or files' rather than a duplicate component", () => {
+    render(<PortfolioSupportSection {...baseProps()} />);
+    openWizard();
+    fireEvent.click(screen.getByRole("radio", { name: /show my process/i }));
+    expect(screen.getByTestId("step-content").textContent).toContain("add-files-step");
   });
 
   it("shows the connected GitHub account as a distinct visual card, separate from the manual username field", async () => {

@@ -1,27 +1,48 @@
 import type { ElementType } from "react";
-import { CircleDashed, Link2, Paperclip, UserCheck } from "lucide-react";
+import { Camera, CircleDashed, Link2, Paperclip, UserCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { SupportMethod } from "@/components/verification/wizard/types";
+import { isProviderConnectable, resolveOfferedMethodsForCategory } from "@/lib/identity/provider-availability";
 
-const CARDS: readonly { value: SupportMethod; title: string; helper: string; icon: ElementType }[] = [
-  { value: "connect_account", title: "Connect an account", helper: "Link GitHub so we can check ownership.", icon: Link2 },
+const BASE_CARDS: readonly { value: SupportMethod; title: string; helper: string; icon: ElementType }[] = [
+  { value: "connect_account", title: "Connect an account", helper: "Link an account so we can check ownership.", icon: Link2 },
   { value: "add_files", title: "Add photos or files", helper: "Upload work you made, plus a few short answers.", icon: Paperclip },
   { value: "add_link", title: "Add a public link", helper: "Point to a page that shows this is real.", icon: Link2 },
   { value: "ask_confirm", title: "Ask someone to confirm", helper: "A teacher, mentor, or organization contact.", icon: UserCheck },
+  { value: "show_process", title: "Show my process", helper: "Sketches, progress photos, or a process log.", icon: Camera },
   { value: "later", title: "Do this later", helper: "Skip for now — you can always come back.", icon: CircleDashed },
 ];
 
 /**
- * Step 1 (spec's DESIRED STRUCTURE): large selectable cards, one method
- * chosen at a time — never a grid of every technical option at once. Native
- * radio semantics via role="radio" on each card keep this keyboard- and
- * screen-reader-navigable without pulling in a whole listbox component.
+ * Step 1 (spec's DESIRED STRUCTURE, extended by spec section 6): large
+ * selectable cards, one method chosen at a time — never a grid of every
+ * technical option at once. Native radio semantics via role="radio" on
+ * each card keep this keyboard- and screen-reader-navigable without
+ * pulling in a whole listbox component.
+ *
+ * `categoryKey` filters which methods are even shown — "Connect an
+ * account" only appears when at least one provider is actually relevant
+ * *and* connectable for this category (spec: "do not show GitHub for a
+ * painting by default"). Omitting categoryKey shows every method, same as
+ * before Milestone 10.8.
  */
-function MethodSelectStep({ value, onChange }: { value: SupportMethod | null; onChange: (method: SupportMethod) => void }) {
+function MethodSelectStep({
+  value,
+  onChange,
+  categoryKey,
+}: {
+  value: SupportMethod | null;
+  onChange: (method: SupportMethod) => void;
+  categoryKey?: string | null;
+}) {
+  const hasConnectableProvider =
+    categoryKey === undefined ? true : resolveOfferedMethodsForCategory(categoryKey).primary.some(isProviderConnectable);
+  const cards = BASE_CARDS.filter((card) => card.value !== "connect_account" || hasConnectableProvider);
+
   return (
     <div role="radiogroup" aria-label="Choose a support method" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {CARDS.map((card) => {
+      {cards.map((card) => {
         const selected = value === card.value;
         const Icon = card.icon;
         return (

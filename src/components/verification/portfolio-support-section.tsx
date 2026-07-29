@@ -8,6 +8,7 @@ import { ClaimDimensionsPanel } from "@/components/verification/claim-dimensions
 import { VerificationPanel } from "@/components/verification/verification-panel";
 import { VerificationStatusCard } from "@/components/verification/verification-status-card";
 import { EvidenceStep } from "@/components/verification/wizard/evidence-step";
+import { GenericProfileChallengeStep } from "@/components/verification/wizard/generic-profile-challenge-step";
 import { GithubStep } from "@/components/verification/wizard/github-step";
 import { LinkStep } from "@/components/verification/wizard/link-step";
 import { MethodSelectStep } from "@/components/verification/wizard/method-select-step";
@@ -19,6 +20,7 @@ import { useWizardState } from "@/components/verification/wizard/use-wizard-stat
 import { VerifierStep } from "@/components/verification/wizard/verifier-step";
 import { OsintCheckPanel } from "@/components/portfolio/osint/osint-check-panel";
 import type { ClaimSupportSummary } from "@/lib/claims/rollup";
+import { resolveOfferedMethodsForCategory } from "@/lib/identity/provider-availability";
 import type { PersonalProjectRequiredInput } from "@/lib/portfolio/personal-project";
 import type { RequestStatus } from "@/lib/verification/request";
 import type { PortfolioFile } from "@/types/portfolio";
@@ -31,6 +33,7 @@ const METHOD_STEP_TITLE: Record<Exclude<SupportMethod, "later">, string> = {
   add_files: "Add photos or files",
   add_link: "Add a public link",
   ask_confirm: "Ask someone to confirm",
+  show_process: "Show your process",
 };
 
 const ADVANCED_DETAILS_ID = "advanced-verification-details";
@@ -64,7 +67,7 @@ function PortfolioSupportSection({
   githubConnectAvailable,
   personalProjectAnswers,
 }: {
-  item: { id: string; title: string; role: string | null };
+  item: { id: string; title: string; role: string | null; activity_category_key: string | null };
   files: PortfolioFile[];
   verification: PortfolioVerification | null;
   requestStatus: RequestStatus;
@@ -111,6 +114,13 @@ function PortfolioSupportSection({
   const publicSourceFound = Boolean(osintCheck && osintCheck.evidence.length > 0);
   const verifierRequested = requestStatus !== "not_requested";
 
+  // The single top-ranked connectable provider for this item's category
+  // (Phase 4's registry) — GitHub renders the existing GithubStep exactly
+  // as before; any other proof-of-control provider renders the generic
+  // TIER-2 challenge step instead. Never both, and never a provider the
+  // registry hasn't actually marked connectable.
+  const topProvider = resolveOfferedMethodsForCategory(item.activity_category_key).primary[0] ?? null;
+
   const reviewRows: ReviewRow[] = [
     { label: "Account connected", done: accountConnected },
     { label: "Evidence added", done: evidenceAdded },
@@ -144,14 +154,19 @@ function PortfolioSupportSection({
             {stepHeading}
           </h2>
 
-          {state.step === 1 && <MethodSelectStep value={state.method} onChange={handleSelectMethod} />}
+          {state.step === 1 && (
+            <MethodSelectStep value={state.method} onChange={handleSelectMethod} categoryKey={item.activity_category_key} />
+          )}
 
-          {state.step === 2 && state.method === "connect_account" && (
+          {state.step === 2 && state.method === "connect_account" && topProvider?.key === "github" && (
             <GithubStep itemId={item.id} githubIdentity={githubIdentity} githubConnectAvailable={githubConnectAvailable} initialRole={item.role ?? ""} />
           )}
-          {state.step === 2 && state.method === "add_files" && (
-            <EvidenceStep itemId={item.id} files={files} hasEvidence={evidenceAdded} initialAnswers={personalProjectAnswers} />
+          {state.step === 2 && state.method === "connect_account" && topProvider && topProvider.key !== "github" && (
+            <GenericProfileChallengeStep itemId={item.id} provider={topProvider} />
           )}
+          {(state.step === 2 && state.method === "add_files") || (state.step === 2 && state.method === "show_process") ? (
+            <EvidenceStep itemId={item.id} files={files} hasEvidence={evidenceAdded} initialAnswers={personalProjectAnswers} />
+          ) : null}
           {state.step === 2 && state.method === "add_link" && (
             <LinkStep
               itemId={item.id}
