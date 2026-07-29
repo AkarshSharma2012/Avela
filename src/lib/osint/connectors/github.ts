@@ -6,8 +6,12 @@
  * repository — never searches GitHub on the student's behalf.
  *
  * Repository *ownership* is decided from the student's connected GitHub
- * username (claim.connectedGithubUsername, an exact-login comparison),
- * never from studentDisplayName: a GitHub login routinely concatenates a
+ * username (claim.connectedGithubUsername, an exact-login comparison) —
+ * as of Milestone 10.7 this is only ever populated from an OAuth-connected
+ * identity (src/lib/identity/repository.ts's getActiveGithubUsernameForUser),
+ * never from a manually typed username, which now earns zero identity
+ * credit (spec section 4) — never from studentDisplayName: a GitHub login
+ * routinely concatenates a
  * name with no separators (e.g. "AkarshSharma2012" for "Akarsh Sharma"),
  * so token-similarity name matching almost never fires for a real account
  * and almost never rules one out either — it's not a safe ownership

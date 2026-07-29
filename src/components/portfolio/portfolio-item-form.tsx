@@ -310,18 +310,20 @@ function PortfolioItemForm({
         />
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="item-github-username">GitHub username (optional)</Label>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="item-github-username" className="text-xs text-muted-foreground">
+          GitHub username (optional)
+        </Label>
         <Input
           id="item-github-username"
           value={state.githubUsername}
           onChange={(event) => update("githubUsername", event.target.value)}
-          placeholder="yourusername or github.com/yourusername"
+          placeholder="yourusername"
           disabled={isPending}
+          className="h-8 max-w-xs text-sm"
         />
         <p className="text-xs text-muted-foreground">
-          If this links to a GitHub repository, connect the account that owns or contributed to it — this is what we
-          check for ownership, not your name.
+          Optional — used only to help find public repositories. It does not verify account ownership.
         </p>
       </div>
 

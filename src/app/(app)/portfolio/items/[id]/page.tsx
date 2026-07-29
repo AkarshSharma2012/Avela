@@ -11,14 +11,16 @@ import { DeleteItemButton } from "@/components/portfolio/delete-item-button";
 import { FileList } from "@/components/portfolio/file-list";
 import { FileUploadForm } from "@/components/portfolio/file-upload-form";
 import { ItemTypeBadge } from "@/components/portfolio/item-type-badge";
-import { OsintCheckPanel } from "@/components/portfolio/osint/osint-check-panel";
 import { PortfolioItemForm } from "@/components/portfolio/portfolio-item-form";
-import { VerificationPanel } from "@/components/verification/verification-panel";
+import { PortfolioSupportSection } from "@/components/verification/portfolio-support-section";
 import { getAuthenticatedUser, requireProfile } from "@/lib/auth/dal";
+import { listDimensionsForItem } from "@/lib/claims/repository";
+import { summarizeClaimDimensions } from "@/lib/claims/rollup";
+import { getMyConnectedGithubIdentity, isGithubConnectAvailable } from "@/lib/identity/actions";
 import { isOsintEligible } from "@/lib/osint/claim-eligibility";
 import { getLatestCheckForItem, listConflictsForCheck, listEvidenceForCheck } from "@/lib/osint/repository";
 import { listApplicationsUsingItem } from "@/lib/portfolio/evidence-repository";
-import { getPortfolioItem, listFilesForItem } from "@/lib/portfolio/repository";
+import { getPersonalProjectDetails, getPortfolioItem, listFilesForItem } from "@/lib/portfolio/repository";
 import { createClient } from "@/lib/supabase/server";
 import { deriveRequestStatus } from "@/lib/verification/request";
 import { getVerificationForItem, metadataOf } from "@/lib/verification/repository";
@@ -57,11 +59,21 @@ export default async function PortfolioItemWorkspacePage({ params }: { params: P
     notFound();
   }
 
-  const [files, applicationsUsingItem, verification] = await Promise.all([
+  const [files, applicationsUsingItem, verification, dimensions, personalProjectDetails, githubIdentityResult, githubConnectAvailable] = await Promise.all([
     listFilesForItem(supabase, profile.id, id),
     listApplicationsUsingItem(supabase, profile.id, id),
     getVerificationForItem(supabase, profile.id, id),
+    listDimensionsForItem(supabase, profile.id, id),
+    getPersonalProjectDetails(supabase, profile.id, id),
+    getMyConnectedGithubIdentity(),
+    isGithubConnectAvailable(),
   ]);
+  const claimSupportSummary = summarizeClaimDimensions(dimensions);
+  const personalProjectAnswers = {
+    whatYouMade: personalProjectDetails?.what_you_made ?? "",
+    whyYouMadeIt: personalProjectDetails?.why_you_made_it ?? "",
+    yourPart: personalProjectDetails?.your_part ?? "",
+  };
   const requestStatus = verification
     ? deriveRequestStatus({
         requestedAt: verification.requested_at,
@@ -114,6 +126,19 @@ export default async function PortfolioItemWorkspacePage({ params }: { params: P
           </p>
         )}
 
+        <PortfolioSupportSection
+          item={item}
+          files={files}
+          verification={verification}
+          requestStatus={requestStatus}
+          claimSupportSummary={claimSupportSummary}
+          osintCheck={osintCheck}
+          osintEligible={isOsintEligible(item.item_type)}
+          githubIdentity={githubIdentityResult.identity}
+          githubConnectAvailable={githubConnectAvailable}
+          personalProjectAnswers={personalProjectAnswers}
+        />
+
         <Section id="details-heading" title="Details">
           <PortfolioItemForm item={item} />
         </Section>
@@ -128,16 +153,6 @@ export default async function PortfolioItemWorkspacePage({ params }: { params: P
             <FileUploadForm portfolioItemId={item.id} />
           </div>
         </Section>
-
-        <Section id="verification-heading" title="Verification">
-          <VerificationPanel itemId={item.id} itemTitle={item.title} verification={verification} requestStatus={requestStatus} files={files} />
-        </Section>
-
-        {isOsintEligible(item.item_type) && (
-          <Section id="osint-heading" title="Public sources">
-            <OsintCheckPanel itemId={item.id} itemTitle={item.title} check={osintCheck} />
-          </Section>
-        )}
 
         <Section id="applications-heading" title="Applications using this evidence">
           <ApplicationsUsingItem applications={applicationsUsingItem} />

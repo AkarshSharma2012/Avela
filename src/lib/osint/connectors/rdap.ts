@@ -15,7 +15,7 @@
 import { safeFetch } from "@/lib/osint/safe-fetch";
 import type { ClaimInput, Connector, ConnectorOutcome, NormalizedEvidence } from "@/lib/osint/types";
 
-function registrableDomain(url: string): string | null {
+export function registrableDomain(url: string): string | null {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
     const parts = hostname.split(".");
@@ -25,11 +25,42 @@ function registrableDomain(url: string): string | null {
   }
 }
 
+/** Same treatment for a bare domain string (no scheme) rather than a full URL — used by verifier-legitimacy.ts, which has an email domain, not a URL. */
+export function registrableDomainFromHostname(hostname: string): string {
+  const parts = hostname.toLowerCase().split(".");
+  return parts.length >= 2 ? parts.slice(-2).join(".") : hostname.toLowerCase();
+}
+
 type RdapResponse = {
   ldhName?: string;
   events?: { eventAction?: string; eventDate?: string }[];
   status?: string[];
 };
+
+export type DomainRegistrationContext = { domain: string; registeredAt: string | null; status: string | null };
+
+/**
+ * Shared RDAP lookup — reused by verifier-legitimacy.ts (spec section 5:
+ * "collect lawful domain-registration context") so a verifier's email
+ * domain gets the exact same "context only, never proof" treatment this
+ * connector already gives a claim's official URL, rather than a second
+ * implementation of the same lookup.
+ */
+export async function fetchDomainRegistrationContext(domain: string): Promise<DomainRegistrationContext | null> {
+  const result = await safeFetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`);
+  if (result.status !== "ok") return null;
+  try {
+    const parsed = JSON.parse(result.body) as RdapResponse;
+    const registrationEvent = parsed.events?.find((e) => e.eventAction === "registration");
+    return {
+      domain: parsed.ldhName ?? domain,
+      registeredAt: registrationEvent?.eventDate ?? null,
+      status: (parsed.status ?? []).join(", ") || null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export const rdapConnector: Connector = {
   name: "icann_rdap",
@@ -40,32 +71,25 @@ export const rdapConnector: Connector = {
     const domain = claim.url ? registrableDomain(claim.url) : null;
     if (!domain) return { ok: false, reason: "No domain to look up." };
 
-    const result = await safeFetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`);
-    if (result.status !== "ok") return { ok: false, reason: `RDAP lookup failed (${result.status}).` };
+    const context = await fetchDomainRegistrationContext(domain);
+    if (!context) return { ok: false, reason: "RDAP lookup failed or returned an unparsable response." };
 
-    try {
-      const parsed = JSON.parse(result.body) as RdapResponse;
-      const registrationEvent = parsed.events?.find((e) => e.eventAction === "registration");
-
-      const evidence: NormalizedEvidence = {
-        sourceType: "icann_rdap",
-        sourceUrl: `https://rdap.org/domain/${encodeURIComponent(domain)}`,
-        sourceDomain: domain,
-        // Always `unknown` — see the module doc. Never `trusted_registry` here,
-        // even though RDAP itself is a trusted registry, precisely so this
-        // connector can never be mistaken for an authoritative confirmation.
-        authorityLevel: "unknown",
-        extractedFields: {
-          domain: parsed.ldhName ?? domain,
-          registeredAt: registrationEvent?.eventDate ?? null,
-          status: (parsed.status ?? []).join(", ") || null,
-        },
-        confidence: 10,
-        retrievedAt: new Date().toISOString(),
-      };
-      return { ok: true, evidence: [evidence] };
-    } catch {
-      return { ok: false, reason: "RDAP returned an unparsable response." };
-    }
+    const evidence: NormalizedEvidence = {
+      sourceType: "icann_rdap",
+      sourceUrl: `https://rdap.org/domain/${encodeURIComponent(domain)}`,
+      sourceDomain: domain,
+      // Always `unknown` — see the module doc. Never `trusted_registry` here,
+      // even though RDAP itself is a trusted registry, precisely so this
+      // connector can never be mistaken for an authoritative confirmation.
+      authorityLevel: "unknown",
+      extractedFields: {
+        domain: context.domain,
+        registeredAt: context.registeredAt,
+        status: context.status,
+      },
+      confidence: 10,
+      retrievedAt: new Date().toISOString(),
+    };
+    return { ok: true, evidence: [evidence] };
   },
 };

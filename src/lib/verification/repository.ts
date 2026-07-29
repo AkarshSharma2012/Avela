@@ -253,3 +253,66 @@ export async function listReviewQueue(serviceClient: Client): Promise<ReviewQueu
 export function metadataOf(verification: PortfolioVerification): PortfolioVerificationMetadata {
   return (verification.metadata ?? {}) as PortfolioVerificationMetadata;
 }
+
+// --- Field-specific verifier confirmations (Milestone 10.7) -----------------
+// No client-facing insert/update policy exists on either of the two tables
+// below (see 20260808000000_verifier_legitimacy_and_project_context.sql) —
+// a verifier acts through a one-time link with no Avela session, so every
+// write here goes through the same service-role client actions.ts already
+// uses for the rest of the verifier-confirm flow.
+
+type FieldConfirmationInsert = Database["public"]["Tables"]["verification_field_confirmations"]["Insert"];
+type DomainAssessmentInsert = Database["public"]["Tables"]["verifier_domain_assessments"]["Insert"];
+
+/** Upserted on (verification_id, field) — a verifier who reloads the link and resubmits replaces their prior per-field answer rather than creating a duplicate row. */
+export async function upsertFieldConfirmationsAsServiceRole(
+  serviceClient: Client,
+  confirmations: FieldConfirmationInsert[]
+): Promise<{ error: string | null }> {
+  if (confirmations.length === 0) return { error: null };
+  const { error } = await serviceClient.from("verification_field_confirmations").upsert(confirmations, { onConflict: "verification_id,field" });
+  return { error: error?.message ?? null };
+}
+
+export async function listFieldConfirmationsForVerification(
+  supabase: Client,
+  userId: string,
+  verificationId: string
+): Promise<Database["public"]["Tables"]["verification_field_confirmations"]["Row"][]> {
+  const { data, error } = await supabase
+    .from("verification_field_confirmations")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("verification_id", verificationId);
+  if (error) {
+    console.error("[verification] failed to load field confirmations:", error.message);
+    return [];
+  }
+  return data ?? [];
+}
+
+export async function insertVerifierDomainAssessmentAsServiceRole(
+  serviceClient: Client,
+  assessment: DomainAssessmentInsert
+): Promise<{ error: string | null }> {
+  const { error } = await serviceClient.from("verifier_domain_assessments").insert(assessment);
+  return { error: error?.message ?? null };
+}
+
+/** Spec section 9's "one verifier confirming many unrelated students" signal — reviewer-only, never surfaced to the student whose claim it's attached to. Counts distinct students a given verifier email has been attached to, across a rolling window. */
+export async function countDistinctStudentsForVerifierEmail(
+  serviceClient: Client,
+  verifierEmail: string,
+  sinceIso: string
+): Promise<number> {
+  const { data, error } = await serviceClient
+    .from("portfolio_verifications")
+    .select("user_id")
+    .ilike("verifier_email", verifierEmail.trim())
+    .gte("requested_at", sinceIso);
+  if (error) {
+    console.error("[verification] failed to count verifier reuse:", error.message);
+    return 0;
+  }
+  return new Set((data ?? []).map((row) => row.user_id)).size;
+}

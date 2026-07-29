@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedUser } from "@/lib/auth/dal";
+import { computeContentHash, stripJpegExif } from "@/lib/portfolio/image-integrity";
 import * as repo from "@/lib/portfolio/repository";
 import { buildPortfolioStoragePath, sanitizeOriginalFilename, validatePortfolioFileSize, validatePortfolioFileType } from "@/lib/portfolio/storage";
 import { createClient } from "@/lib/supabase/server";
@@ -53,19 +54,31 @@ export async function POST(request: Request) {
   const mimeType = file.type as PortfolioFileMimeType;
   const storagePath = buildPortfolioStoragePath(user.id, portfolioItemId, mimeType);
 
-  const { error: uploadError } = await repo.uploadPortfolioFileObject(supabase, storagePath, file, mimeType);
+  // Strip EXIF from JPEGs before it's ever stored (spec section 7: "strip
+  // unnecessary metadata before display") — a pure byte-level operation,
+  // never a claim about what the resulting image proves. Non-JPEG uploads
+  // pass through unchanged. The content hash is computed on the *stored*
+  // bytes so duplicate detection matches what's actually in the bucket.
+  let bytes: Buffer = Buffer.from(await file.arrayBuffer());
+  if (mimeType === "image/jpeg") bytes = stripJpegExif(bytes);
+  const contentHash = computeContentHash(bytes);
+
+  const { error: uploadError } = await repo.uploadPortfolioFileObject(supabase, storagePath, bytes, mimeType);
   if (uploadError) {
     console.error("[portfolio] failed to upload file:", uploadError);
     return NextResponse.json({ error: "Couldn't upload that file. Please try again." }, { status: 500 });
   }
+
+  const isDuplicate = await repo.findDuplicateFileHashUsage(supabase, user.id, contentHash);
 
   const { fileId, error: insertError } = await repo.insertPortfolioFileRow(supabase, user.id, {
     portfolioItemId,
     storagePath,
     originalFilename: sanitizeOriginalFilename(file.name),
     mimeType,
-    fileSize: file.size,
+    fileSize: bytes.byteLength,
     label,
+    contentHash,
   });
 
   if (insertError || !fileId) {
@@ -78,5 +91,5 @@ export async function POST(request: Request) {
   revalidatePath("/dashboard");
   if (portfolioItemId) revalidatePath(`/portfolio/items/${portfolioItemId}`);
 
-  return NextResponse.json({ fileId, storagePath, originalFilename: sanitizeOriginalFilename(file.name), mimeType, fileSize: file.size });
+  return NextResponse.json({ fileId, storagePath, originalFilename: sanitizeOriginalFilename(file.name), mimeType, fileSize: bytes.byteLength, isDuplicate });
 }

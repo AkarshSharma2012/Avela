@@ -11,8 +11,8 @@
 import { revalidatePath } from "next/cache";
 
 import { getAuthenticatedUser, getCurrentProfile } from "@/lib/auth/dal";
+import { getActiveGithubUsernameForUser } from "@/lib/identity/repository";
 import { claimTypeForItemType } from "@/lib/osint/claim-eligibility";
-import { normalizeGithubUsername } from "@/lib/osint/github-identity";
 import { buildConsentSummary, freezeConsentScope, validateConsentGiven, type ConsentSummary } from "@/lib/osint/consent";
 import { assertRespectfulLanguage } from "@/lib/osint/messages";
 import { runOsintCheck } from "@/lib/osint/orchestrator";
@@ -55,6 +55,12 @@ async function buildClaimForItem(
   }
 
   const profile = await getCurrentProfile();
+  // Milestone 10.7: identity-control credit now comes only from an
+  // OAuth-connected GitHub account (src/lib/identity/*), never from the
+  // student-typed portfolio_items.github_username column — that field
+  // remains only an unverified search hint (spec section 4) and is never
+  // passed to the OSINT connector as an ownership signal.
+  const connectedGithubUsername = await getActiveGithubUsernameForUser(supabase, userId);
   const claim: ClaimInput = {
     claimType,
     studentDisplayName: profile?.display_name || "",
@@ -65,7 +71,7 @@ async function buildClaimForItem(
     startDate: item.start_date,
     endDate: item.end_date,
     url: item.url,
-    connectedGithubUsername: normalizeGithubUsername(item.github_username),
+    connectedGithubUsername,
   };
   if (!claim.studentDisplayName) return { error: "Add your display name to your profile before running a public-source check." };
 

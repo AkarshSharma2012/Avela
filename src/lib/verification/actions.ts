@@ -4,14 +4,20 @@ import { revalidatePath } from "next/cache";
 
 import { siteConfig } from "@/config/site";
 import { getAuthenticatedUser, getCurrentProfile } from "@/lib/auth/dal";
+import { applyDimensionTransition, createClaimsServiceRoleClient, ensureDimensionRow, listDimensionsForUser, markDimensionStale } from "@/lib/claims/repository";
 import { getEmailProvider } from "@/lib/email/provider";
 import * as portfolioRepo from "@/lib/portfolio/repository";
 import { VERIFICATION_LINK_EXPIRY_SECONDS } from "@/lib/verification/constants";
 import { buildVerificationRequestEmail } from "@/lib/verification/email-templates";
 import { runEvidenceChecks, type EvidenceFinding } from "@/lib/verification/evidence-checks";
+import { gatherDomainContext } from "@/lib/verification/domain-context";
+import { dimensionsForFieldConfirmation, THIRD_PARTY_CONFIRMATION_DIMENSION, VERIFICATION_FIELD_OPTIONS } from "@/lib/verification/field-confirmation";
+import { runFieldConfirmationScopeCheck, runVerifierIntegrityChecks } from "@/lib/integrity/orchestrator";
+import { checkAndIncrementRateLimit, checkAndIncrementRateLimitForUser } from "@/lib/integrity/rate-limit";
 import { canTransitionLevel } from "@/lib/verification/level";
 import { containsForbiddenLanguage } from "@/lib/verification/messages";
-import { isAuthorizedReviewer } from "@/lib/verification/reviewer-auth";
+import { validateOrganizationRequirement } from "@/lib/verification/project-context";
+import { hasConflictOfInterest, isAuthorizedReviewerAsync } from "@/lib/roles/access";
 import {
   checkRequestEligibility,
   checkResendEligibility,
@@ -21,6 +27,7 @@ import {
 import * as repo from "@/lib/verification/repository";
 import { computeVerificationExpiry, generateVerificationToken, hashVerificationToken, isTokenExpired } from "@/lib/verification/tokens";
 import { checkOfficialUrl } from "@/lib/verification/url-check";
+import { classifyVerifierDomain } from "@/lib/verification/verifier-legitimacy";
 import {
   validateCorrectionNote,
   validateEvidenceUrl,
@@ -30,7 +37,8 @@ import {
   validateVerifierOrganization,
 } from "@/lib/verification/validation";
 import { createClient } from "@/lib/supabase/server";
-import type { PortfolioVerificationLevel, PortfolioVerificationMethod } from "@/types/database";
+import type { PortfolioVerificationLevel, PortfolioVerificationMethod, VerificationFieldConfirmationField, VerificationFieldConfirmationResponse } from "@/types/database";
+import type { ClaimDimension } from "@/types/claims";
 import type { PortfolioVerificationMetadata, PortfolioVerification } from "@/types/verification";
 import type { VerifierClaimView, ReviewQueueEntry } from "@/lib/verification/repository";
 
@@ -69,6 +77,67 @@ function getServiceRoleClientOrError(): { client: ReturnType<typeof repo.createV
   } catch (err) {
     console.error("[verification] service-role client unavailable:", err);
     return { error: "This action isn't available right now. Please try again later." };
+  }
+}
+
+/**
+ * Best-effort, never blocking (spec section 12: "connector failures do not
+ * block saving"): gathers domain context for the verifier's email,
+ * classifies it, and records a verifier_domain_assessments row for
+ * reviewer-only anti-collusion signals. A failure here is logged and
+ * swallowed — the request itself has already succeeded by the time this
+ * runs.
+ */
+async function recordVerifierDomainAssessment(
+  userId: string,
+  itemId: string,
+  verificationId: string,
+  verifierEmail: string,
+  verifierOrganization: string | null
+): Promise<void> {
+  try {
+    const context = await gatherDomainContext(verifierEmail, verifierOrganization);
+    const classification = classifyVerifierDomain({ organization: verifierOrganization, context });
+    const domain = context?.domain ?? (verifierEmail.split("@")[1] ?? "").toLowerCase();
+    if (!domain) return;
+
+    const serviceClient = repo.createVerificationServiceRoleClient();
+    await repo.insertVerifierDomainAssessmentAsServiceRole(serviceClient, {
+      user_id: userId,
+      portfolio_item_id: itemId,
+      verification_id: verificationId,
+      verifier_email_domain: domain,
+      official_domain: null,
+      classification,
+      has_mx: context?.hasMx ?? false,
+      has_spf: context?.hasSpf ?? false,
+      has_dmarc: context?.hasDmarc ?? false,
+      domain_registered_at: context?.domainRegisteredAt ?? null,
+      is_free_email_provider: context?.isFreeEmailProvider ?? false,
+      is_role_mailbox: context?.isRoleMailbox ?? false,
+    });
+
+    await runVerifierIntegrityChecks(userId, verifierEmail, classification);
+  } catch (err) {
+    console.error("[verification] failed to record verifier domain assessment:", err);
+  }
+}
+
+/** Best-effort, never blocking — a failure here never stops the evidence save from succeeding, it just means a stale claim dimension isn't caught until the next check. */
+async function downgradeDimensionsForReplacedEvidence(userId: string, itemId: string, oldFileId: string | null, oldUrl: string | null): Promise<void> {
+  if (!oldFileId && !oldUrl) return;
+  try {
+    const serviceClient = createClaimsServiceRoleClient();
+    const byItem = await listDimensionsForUser(serviceClient, userId);
+    const affected = (byItem.get(itemId) ?? []).filter((row) => {
+      const ref = row.evidence_ref as { evidence_file_id?: string; evidence_url?: string } | null;
+      return (oldFileId && ref?.evidence_file_id === oldFileId) || (oldUrl && ref?.evidence_url === oldUrl);
+    });
+    for (const row of affected) {
+      await markDimensionStale(serviceClient, row, "The evidence this was based on was replaced.");
+    }
+  } catch (err) {
+    console.error("[verification] failed to downgrade dimensions after evidence replacement:", err);
   }
 }
 
@@ -199,6 +268,13 @@ async function applyEvidenceSubmission(
     });
   }
 
+  // Spec section 8: replacing evidence re-triggers evaluation of anything
+  // that depended on the *old* evidence — a dimension whose evidence_ref
+  // pointed at the file/URL being replaced no longer has that backing.
+  if (eventType === "evidence_replaced") {
+    await downgradeDimensionsForReplacedEvidence(user.id, itemId, verification.evidence_file_id, verification.evidence_url);
+  }
+
   revalidateVerificationPages(itemId);
   return {};
 }
@@ -239,6 +315,12 @@ export async function requestVerification(itemId: string, input: RequestVerifica
   const supabase = await createClient();
   const item = await portfolioRepo.getPortfolioItem(supabase, user.id, itemId);
   if (!item) return { error: "Couldn't find that portfolio item." };
+
+  const orgRequirementError = validateOrganizationRequirement(item.project_context, input.verifierOrganization ?? null);
+  if (orgRequirementError) return { error: orgRequirementError };
+
+  const rateLimit = await checkAndIncrementRateLimit(supabase, "verification_request");
+  if (!rateLimit.allowed) return { error: "You've reached the limit for this request type — try again later." };
 
   const { verification, error: ensureError } = await repo.ensureVerificationRow(supabase, user.id, itemId);
   if (ensureError || !verification) return { error: "Couldn't start that request. Please try again." };
@@ -285,6 +367,8 @@ export async function requestVerification(itemId: string, input: RequestVerifica
     reason: null,
   });
 
+  await recordVerifierDomainAssessment(user.id, itemId, verification.id, input.verifierEmail.trim(), input.verifierOrganization ?? null);
+
   const profile = await getCurrentProfile();
   const emailBody = buildVerificationRequestEmail({
     verifierName: input.verifierName.trim(),
@@ -315,6 +399,9 @@ export async function resendVerificationRequest(itemId: string): Promise<Verific
     return { error: "There's no pending request to resend." };
   }
   if (statusOf(verification) !== "pending") return { error: "There's no pending request to resend." };
+
+  const rateLimit = await checkAndIncrementRateLimit(supabase, "verification_resend");
+  if (!rateLimit.allowed) return { error: "You've reached the limit for this request type — try again later." };
 
   const metadata = repo.metadataOf(verification);
   const eligibility = checkResendEligibility({ resendCount: metadata.resend_count ?? 0, lastSentAt: metadata.last_sent_at ?? null });
@@ -481,11 +568,96 @@ export async function requestCorrectionFromVerifier(rawToken: string, note: stri
   });
 }
 
+export type FieldConfirmationSubmission = {
+  field: VerificationFieldConfirmationField;
+  response: VerificationFieldConfirmationResponse;
+  note?: string;
+};
+
+/**
+ * The verifier's field-by-field response (spec section 5) — never a single
+ * "confirm everything" action. Each field independently updates only the
+ * claim dimension(s) it maps to (field-confirmation.ts), and every
+ * response — of any kind — supports the third_party_confirmation dimension,
+ * since a legitimate third party responding to specific fields is exactly
+ * what that dimension records.
+ */
+export async function submitVerifierFieldConfirmations(rawToken: string, submissions: FieldConfirmationSubmission[]): Promise<VerificationActionResult> {
+  if (submissions.length === 0) return { error: "Select at least one field to respond to." };
+
+  for (const submission of submissions) {
+    if (submission.note && containsForbiddenLanguage(submission.note)) {
+      return { error: "Please describe what's missing or mismatched without characterizing the student." };
+    }
+  }
+
+  const { claim, error } = await getVerifierClaim(rawToken);
+  if (!claim) return { error: error ?? "This verification link isn't valid." };
+
+  const clientResult = getServiceRoleClientOrError();
+  if ("error" in clientResult) return { error: clientResult.error };
+  const serviceClient = clientResult.client;
+
+  const rateLimit = await checkAndIncrementRateLimitForUser(serviceClient, claim.verification.user_id, "verifier_response");
+  if (!rateLimit.allowed) return { error: "You've reached the limit for this request type — try again later." };
+
+  const { error: upsertError } = await repo.upsertFieldConfirmationsAsServiceRole(
+    serviceClient,
+    submissions.map((submission) => ({
+      user_id: claim.verification.user_id,
+      portfolio_item_id: claim.verification.portfolio_item_id,
+      verification_id: claim.verification.id,
+      field: submission.field,
+      response: submission.response,
+      note: submission.note?.trim() || null,
+    }))
+  );
+  if (upsertError) {
+    console.error("[verification] failed to save field confirmations:", upsertError);
+    return { error: "Couldn't save that response. Please try again." };
+  }
+
+  const dimensionsSupported = new Set<ClaimDimension>();
+  for (const submission of submissions) {
+    for (const dimension of dimensionsForFieldConfirmation(submission.field, submission.response)) {
+      dimensionsSupported.add(dimension);
+    }
+  }
+  const anyConfirmed = submissions.some((s) => s.response === "can_confirm");
+  const anyUnresolved = submissions.some((s) => s.response !== "can_confirm");
+
+  for (const dimension of dimensionsSupported) {
+    const { result } = await ensureDimensionRow(serviceClient, claim.verification.user_id, claim.verification.portfolio_item_id, dimension);
+    if (result) {
+      await applyDimensionTransition(serviceClient, result, {
+        status: "externally_confirmed",
+        actorType: "verifier",
+        evidenceRef: { field_confirmation_id: claim.verification.id },
+      });
+    }
+  }
+
+  const { result: thirdPartyRow } = await ensureDimensionRow(serviceClient, claim.verification.user_id, claim.verification.portfolio_item_id, THIRD_PARTY_CONFIRMATION_DIMENSION);
+  if (thirdPartyRow) {
+    await applyDimensionTransition(serviceClient, thirdPartyRow, {
+      status: anyConfirmed ? "externally_confirmed" : "needs_review",
+      actorType: "verifier",
+      reason: anyUnresolved ? "The verifier could not confirm every requested detail." : undefined,
+    });
+  }
+
+  const confirmedCount = submissions.filter((s) => s.response === "can_confirm").length;
+  await runFieldConfirmationScopeCheck(claim.verification.user_id, confirmedCount, VERIFICATION_FIELD_OPTIONS.length);
+
+  revalidatePath(`/portfolio/items/${claim.verification.portfolio_item_id}`);
+  return {};
+}
+
 // --- Reviewer actions (authenticated, allowlisted) --------------------------
 
 export async function getReviewQueueForReviewer(): Promise<{ entries: ReviewQueueEntry[]; error?: string }> {
   const user = await getAuthenticatedUser();
-  if (!user || !isAuthorizedReviewer(user.email)) return { entries: [], error: "Not authorized." };
+  if (!user || !(await isAuthorizedReviewerAsync(user.id, user.email))) return { entries: [], error: "Not authorized." };
 
   const clientResult = getServiceRoleClientOrError();
   if ("error" in clientResult) return { entries: [], error: clientResult.error };
@@ -495,13 +667,17 @@ export async function getReviewQueueForReviewer(): Promise<{ entries: ReviewQueu
 
 export async function reviewerDecide(verificationId: string, decision: "confirm" | "reject", notes: string): Promise<VerificationActionResult> {
   const user = await getAuthenticatedUser();
-  if (!user || !isAuthorizedReviewer(user.email)) return { error: "Not authorized." };
+  if (!user || !(await isAuthorizedReviewerAsync(user.id, user.email))) return { error: "Not authorized." };
 
   const notesError = validateReviewNotes(notes);
   if (notesError) return { error: notesError };
   if (containsForbiddenLanguage(notes)) {
     return { error: "Please describe what's missing or mismatched without characterizing the student." };
   }
+
+  const supabase = await createClient();
+  const rateLimit = await checkAndIncrementRateLimit(supabase, "reviewer_decision");
+  if (!rateLimit.allowed) return { error: "You've reached the limit for this request type — try again later." };
 
   const clientResult = getServiceRoleClientOrError();
   if ("error" in clientResult) return { error: clientResult.error };
@@ -512,6 +688,10 @@ export async function reviewerDecide(verificationId: string, decision: "confirm"
     .eq("id", verificationId)
     .maybeSingle();
   if (fetchError || !verification) return { error: "Couldn't find that verification record." };
+
+  if (hasConflictOfInterest(user.id, verification.user_id)) {
+    return { error: "You can't review your own entry." };
+  }
 
   const newLevel: PortfolioVerificationLevel = decision === "confirm" ? "externally_confirmed" : "rejected";
   if (!canTransitionLevel(verification.verification_level, newLevel, "reviewer")) {

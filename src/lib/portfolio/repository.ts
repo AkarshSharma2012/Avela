@@ -170,6 +170,8 @@ export type InsertFileMeta = {
   mimeType: Database["public"]["Tables"]["portfolio_files"]["Row"]["mime_type"];
   fileSize: number;
   label?: string | null;
+  evidenceRole?: Database["public"]["Tables"]["portfolio_files"]["Row"]["evidence_role"];
+  contentHash?: string | null;
 };
 
 export async function insertPortfolioFileRow(
@@ -187,12 +189,26 @@ export async function insertPortfolioFileRow(
       mime_type: meta.mimeType,
       file_size: meta.fileSize,
       label: meta.label ?? null,
+      evidence_role: meta.evidenceRole ?? null,
+      content_hash: meta.contentHash ?? null,
     })
     .select("id")
     .single();
 
   if (error) return { fileId: null, error: error.message };
   return { fileId: data.id, error: null };
+}
+
+/** Whether this exact file content already backs a *different* claim for this student (spec section 7/9: "reusing the same document, image, certificate, or URL") — a soft signal, never blocking. Mirrors verification/repository.ts's findDuplicateEvidenceUsage. */
+export async function findDuplicateFileHashUsage(supabase: Client, userId: string, contentHash: string, excludeFileId?: string): Promise<boolean> {
+  let query = supabase.from("portfolio_files").select("id").eq("user_id", userId).eq("content_hash", contentHash);
+  if (excludeFileId) query = query.neq("id", excludeFileId);
+  const { data, error } = await query.limit(1);
+  if (error) {
+    console.error("[portfolio] failed to check duplicate file hash:", error.message);
+    return false;
+  }
+  return (data ?? []).length > 0;
 }
 
 export async function removePortfolioFileRow(supabase: Client, userId: string, fileId: string): Promise<{ error: string | null }> {
@@ -244,4 +260,82 @@ export async function createPortfolioFileSignedUrl(
   const { data, error } = await supabase.storage.from(STUDENT_PORTFOLIO_BUCKET).createSignedUrl(storagePath, expiresInSeconds);
   if (error || !data) return { url: null, error: error?.message ?? "Couldn't create a download link." };
   return { url: data.signedUrl, error: null };
+}
+
+// --- Personal/physical/creative project details (Milestone 10.7) ----------
+
+type PersonalProjectDetailsRow = Database["public"]["Tables"]["portfolio_personal_project_details"]["Row"];
+type PersonalProjectDetailsInsert = Database["public"]["Tables"]["portfolio_personal_project_details"]["Insert"];
+
+export async function getPersonalProjectDetails(supabase: Client, userId: string, itemId: string): Promise<PersonalProjectDetailsRow | null> {
+  const { data, error } = await supabase
+    .from("portfolio_personal_project_details")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("portfolio_item_id", itemId)
+    .maybeSingle();
+  if (error) {
+    console.error("[portfolio] failed to load personal project details:", error.message);
+    return null;
+  }
+  return data;
+}
+
+/** Upserted on the migration's unique(portfolio_item_id) — saving again always replaces the prior answers rather than erroring or duplicating. */
+export async function upsertPersonalProjectDetails(
+  supabase: Client,
+  row: PersonalProjectDetailsInsert
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("portfolio_personal_project_details").upsert(row, { onConflict: "portfolio_item_id" });
+  return { error: error?.message ?? null };
+}
+
+// --- Physical-artifact possession challenges (Milestone 10.7) -------------
+
+type PossessionChallengeRow = Database["public"]["Tables"]["portfolio_possession_challenges"]["Row"];
+type PossessionChallengeInsert = Database["public"]["Tables"]["portfolio_possession_challenges"]["Insert"];
+
+export async function createPossessionChallenge(
+  supabase: Client,
+  row: PossessionChallengeInsert
+): Promise<{ challenge: PossessionChallengeRow | null; error: string | null }> {
+  const { data, error } = await supabase.from("portfolio_possession_challenges").insert(row).select("*").single();
+  if (error) return { challenge: null, error: error.message };
+  return { challenge: data, error: null };
+}
+
+export async function getPossessionChallenge(supabase: Client, userId: string, challengeId: string): Promise<PossessionChallengeRow | null> {
+  const { data, error } = await supabase.from("portfolio_possession_challenges").select("*").eq("user_id", userId).eq("id", challengeId).maybeSingle();
+  if (error) {
+    console.error("[portfolio] failed to load possession challenge:", error.message);
+    return null;
+  }
+  return data;
+}
+
+export async function attachPossessionChallengeEvidence(supabase: Client, userId: string, challengeId: string, fileId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("portfolio_possession_challenges").update({ evidence_file_id: fileId }).eq("user_id", userId).eq("id", challengeId);
+  return { error: error?.message ?? null };
+}
+
+export async function countRecentPossessionChallengesForUser(supabase: Client, userId: string, sinceIso: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("portfolio_possession_challenges")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", sinceIso);
+  if (error) {
+    console.error("[portfolio] failed to count recent possession challenges:", error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+/** Reviewer-only — visually confirming the challenge code is present in the attached photo has no automated equivalent in this codebase (no OCR/vision connector), so this always runs through a service-role connection after a reviewer looks, never from the student's own session (see the migration's update policy). */
+export async function confirmPossessionChallengeAsServiceRole(serviceClient: Client, challengeId: string): Promise<{ error: string | null }> {
+  const { error } = await serviceClient
+    .from("portfolio_possession_challenges")
+    .update({ status: "confirmed", confirmed_at: new Date().toISOString() })
+    .eq("id", challengeId);
+  return { error: error?.message ?? null };
 }

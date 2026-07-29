@@ -362,6 +362,137 @@ export type PortfolioOsintConflictSeverity = "info" | "minor" | "material";
 
 export type PortfolioOsintReviewAction = "confirm_support" | "request_clarification" | "mark_insufficient" | "override_support_level";
 
+// Claim-Dimension Model (Milestone 10.7)
+
+/** See supabase/migrations/20260806000000_claim_dimensions.sql for the check constraint this mirrors. */
+export type ClaimDimension =
+  | "identity_control"
+  | "project_or_activity_exists"
+  | "account_or_asset_control"
+  | "authorship_or_contribution"
+  | "role"
+  | "dates_and_duration"
+  | "organization_relationship"
+  | "award_or_credential"
+  | "output_or_deliverable"
+  | "impact_or_outcome"
+  | "third_party_confirmation";
+
+/**
+ * Independent from PortfolioVerificationLevel by design — a dimension's
+ * status never implies anything about any other dimension on the same item.
+ * "externally_confirmed" here means a legitimate third party (an issuer API,
+ * a connected-identity provider, a verifier) confirmed *this specific*
+ * dimension, never the whole entry.
+ */
+export type ClaimDimensionStatus =
+  | "not_checked"
+  | "unable_to_verify"
+  | "partially_supported"
+  | "strongly_supported"
+  | "externally_confirmed"
+  | "needs_review";
+
+// Connected Identity (Milestone 10.7)
+
+/** See supabase/migrations/20260807000000_connected_identities.sql. Only 'github' today — the shape is provider-generic so a future provider is additive. */
+export type ConnectedIdentityProvider = "github";
+
+export type ConnectedIdentityEventType =
+  | "connected"
+  | "reconnected"
+  | "disconnected"
+  | "refresh_failed"
+  | "repository_selected"
+  | "role_confirmed";
+
+export type ConnectedIdentityEventActorType = "student" | "system";
+
+export type PossessionChallengeType = "repo_file" | "gist" | "issue" | "deployment_endpoint";
+
+export type PossessionChallengeStatus = "pending" | "confirmed" | "expired" | "revoked";
+
+// Verifier Legitimacy & Project Context (Milestone 10.7)
+
+/** See supabase/migrations/20260808000000_verifier_legitimacy_and_project_context.sql. */
+export type PortfolioItemProjectContext = "org_linked" | "personal_project";
+
+export type VerificationFieldConfirmationField = "participation" | "role" | "dates" | "hours" | "outcome";
+
+export type VerificationFieldConfirmationResponse = "can_confirm" | "cannot_confirm" | "needs_correction";
+
+/**
+ * Supporting context only — never a trust score, never proof of employment.
+ * See docs/security.md (Milestone 10.7) and src/lib/verification/verifier-legitimacy.ts.
+ */
+export type VerifierDomainClassification =
+  | "organization_domain_aligned"
+  | "organization_domain_unconfirmed"
+  | "personal_or_free_email"
+  | "role_mailbox"
+  | "domain_mismatch"
+  | "suspicious_or_disposable"
+  | "repeated_verifier_pattern"
+  | "manual_review_required";
+
+// Personal/Physical/Creative Project Flow (Milestone 10.7)
+
+/** See supabase/migrations/20260809000000_personal_project_details.sql. */
+export type PortfolioFileEvidenceRole =
+  | "concept_or_plan"
+  | "sketch_or_draft"
+  | "materials_or_tools"
+  | "work_in_progress"
+  | "final_artifact"
+  | "demonstration"
+  | "reflection"
+  | "collaborator_confirmation"
+  | "supervisor_confirmation"
+  | "customer_or_recipient_confirmation"
+  | "event_or_display"
+  | "receipt_or_material_record"
+  | "process_log"
+  | "other";
+
+/** Shared shape with PossessionChallengeStatus (identity.ts) — same four values, different owning table. */
+export type PortfolioPossessionChallengeStatus = "pending" | "confirmed" | "expired" | "revoked";
+
+// Anti-Gaming / Anti-Collusion Signals & Rate Limiting (Milestone 10.7)
+
+/** See supabase/migrations/20260811000000_integrity_signals.sql. Reviewer-only — never shown to the subject student (docs/security.md). */
+export type IntegritySignalType =
+  | "repeated_evidence_hash"
+  | "near_identical_narrative"
+  | "verifier_reused_across_students"
+  | "circular_student_verification"
+  | "domain_mismatch_or_suspicious"
+  | "request_velocity"
+  | "edit_shortly_after_confirmation"
+  | "request_spam_cancel_cycle"
+  | "connect_disconnect_around_verification"
+  | "fork_history_copied"
+  | "verifier_scope_narrower_than_claim"
+  | "split_project_farming";
+
+/** Never auto-rejects, never auto-decides eligibility — only ever routes to a human reviewer (spec section 9). */
+export type IntegrityRiskLevel = "normal" | "additional_evidence_recommended" | "manual_review" | "temporarily_limited";
+
+export type IntegrityReviewDecision = "dismissed" | "needs_more_evidence" | "limited_temporarily" | "escalated";
+
+export type RateLimitBucket =
+  | "verification_request"
+  | "verification_resend"
+  | "verifier_response"
+  | "osint_check"
+  | "connect_attempt"
+  | "possession_challenge"
+  | "reviewer_decision";
+
+// Reviewer/Admin Roles (Milestone 10.7)
+
+/** See supabase/migrations/20260812000000_user_roles.sql. */
+export type UserRoleValue = "student" | "reviewer" | "admin" | "owner";
+
 export type Database = {
   public: {
     Tables: {
@@ -1239,6 +1370,9 @@ export type Database = {
           tags: string[];
           url: string | null;
           github_username: string | null;
+          project_context: PortfolioItemProjectContext | null;
+          last_material_hash: string | null;
+          material_hash_updated_at: string | null;
           visibility: PortfolioItemVisibility;
           created_at: string;
           updated_at: string;
@@ -1261,6 +1395,9 @@ export type Database = {
           tags?: string[];
           url?: string | null;
           github_username?: string | null;
+          project_context?: PortfolioItemProjectContext | null;
+          last_material_hash?: string | null;
+          material_hash_updated_at?: string | null;
           visibility?: PortfolioItemVisibility;
           created_at?: string;
           updated_at?: string;
@@ -1283,6 +1420,9 @@ export type Database = {
           tags?: string[];
           url?: string | null;
           github_username?: string | null;
+          project_context?: PortfolioItemProjectContext | null;
+          last_material_hash?: string | null;
+          material_hash_updated_at?: string | null;
           visibility?: PortfolioItemVisibility;
           created_at?: string;
           updated_at?: string;
@@ -1299,6 +1439,8 @@ export type Database = {
           mime_type: PortfolioFileMimeType;
           file_size: number;
           label: string | null;
+          evidence_role: PortfolioFileEvidenceRole | null;
+          content_hash: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -1311,6 +1453,8 @@ export type Database = {
           mime_type: PortfolioFileMimeType;
           file_size: number;
           label?: string | null;
+          evidence_role?: PortfolioFileEvidenceRole | null;
+          content_hash?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1323,6 +1467,8 @@ export type Database = {
           mime_type?: PortfolioFileMimeType;
           file_size?: number;
           label?: string | null;
+          evidence_role?: PortfolioFileEvidenceRole | null;
+          content_hash?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1628,6 +1774,516 @@ export type Database = {
         };
         Relationships: [];
       };
+      claim_dimension_results: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          dimension: ClaimDimension;
+          status: ClaimDimensionStatus;
+          stale: boolean;
+          evidence_ref: Record<string, unknown>;
+          notes: string | null;
+          updated_by_actor_type: PortfolioVerificationActorType;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          dimension: ClaimDimension;
+          status?: ClaimDimensionStatus;
+          stale?: boolean;
+          evidence_ref?: Record<string, unknown>;
+          notes?: string | null;
+          updated_by_actor_type?: PortfolioVerificationActorType;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          dimension?: ClaimDimension;
+          status?: ClaimDimensionStatus;
+          stale?: boolean;
+          evidence_ref?: Record<string, unknown>;
+          notes?: string | null;
+          updated_by_actor_type?: PortfolioVerificationActorType;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      claim_dimension_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          dimension_result_id: string;
+          dimension: ClaimDimension;
+          actor_type: PortfolioVerificationActorType;
+          previous_status: ClaimDimensionStatus | null;
+          new_status: ClaimDimensionStatus;
+          reason: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          dimension_result_id: string;
+          dimension: ClaimDimension;
+          actor_type: PortfolioVerificationActorType;
+          previous_status?: ClaimDimensionStatus | null;
+          new_status: ClaimDimensionStatus;
+          reason?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          dimension_result_id?: string;
+          dimension?: ClaimDimension;
+          actor_type?: PortfolioVerificationActorType;
+          previous_status?: ClaimDimensionStatus | null;
+          new_status?: ClaimDimensionStatus;
+          reason?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      connected_identities: {
+        Row: {
+          id: string;
+          user_id: string;
+          provider: ConnectedIdentityProvider;
+          provider_subject: string;
+          provider_username: string;
+          provider_profile_url: string | null;
+          display_name: string | null;
+          avatar_url: string | null;
+          access_token_ciphertext: string | null;
+          granted_scopes: string[];
+          verified_at: string;
+          last_checked_at: string | null;
+          disconnected_at: string | null;
+          metadata: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          provider: ConnectedIdentityProvider;
+          provider_subject: string;
+          provider_username: string;
+          provider_profile_url?: string | null;
+          display_name?: string | null;
+          avatar_url?: string | null;
+          access_token_ciphertext?: string | null;
+          granted_scopes?: string[];
+          verified_at?: string;
+          last_checked_at?: string | null;
+          disconnected_at?: string | null;
+          metadata?: Record<string, unknown>;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          provider?: ConnectedIdentityProvider;
+          provider_subject?: string;
+          provider_username?: string;
+          provider_profile_url?: string | null;
+          display_name?: string | null;
+          avatar_url?: string | null;
+          access_token_ciphertext?: string | null;
+          granted_scopes?: string[];
+          verified_at?: string;
+          last_checked_at?: string | null;
+          disconnected_at?: string | null;
+          metadata?: Record<string, unknown>;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      connected_identity_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          connected_identity_id: string;
+          event_type: ConnectedIdentityEventType;
+          actor_type: ConnectedIdentityEventActorType;
+          reason: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          connected_identity_id: string;
+          event_type: ConnectedIdentityEventType;
+          actor_type: ConnectedIdentityEventActorType;
+          reason?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          connected_identity_id?: string;
+          event_type?: ConnectedIdentityEventType;
+          actor_type?: ConnectedIdentityEventActorType;
+          reason?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      identity_possession_challenges: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string | null;
+          provider: ConnectedIdentityProvider;
+          target_identifier: string;
+          challenge_type: PossessionChallengeType;
+          challenge_token_hash: string;
+          status: PossessionChallengeStatus;
+          expires_at: string;
+          confirmed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id?: string | null;
+          provider: ConnectedIdentityProvider;
+          target_identifier: string;
+          challenge_type: PossessionChallengeType;
+          challenge_token_hash: string;
+          status?: PossessionChallengeStatus;
+          expires_at: string;
+          confirmed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string | null;
+          provider?: ConnectedIdentityProvider;
+          target_identifier?: string;
+          challenge_type?: PossessionChallengeType;
+          challenge_token_hash?: string;
+          status?: PossessionChallengeStatus;
+          expires_at?: string;
+          confirmed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      verification_field_confirmations: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          verification_id: string;
+          field: VerificationFieldConfirmationField;
+          response: VerificationFieldConfirmationResponse;
+          note: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          verification_id: string;
+          field: VerificationFieldConfirmationField;
+          response: VerificationFieldConfirmationResponse;
+          note?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          verification_id?: string;
+          field?: VerificationFieldConfirmationField;
+          response?: VerificationFieldConfirmationResponse;
+          note?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      verifier_domain_assessments: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          verification_id: string;
+          verifier_email_domain: string;
+          official_domain: string | null;
+          classification: VerifierDomainClassification;
+          has_mx: boolean;
+          has_spf: boolean;
+          has_dmarc: boolean;
+          domain_registered_at: string | null;
+          is_free_email_provider: boolean;
+          is_role_mailbox: boolean;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          verification_id: string;
+          verifier_email_domain: string;
+          official_domain?: string | null;
+          classification: VerifierDomainClassification;
+          has_mx?: boolean;
+          has_spf?: boolean;
+          has_dmarc?: boolean;
+          domain_registered_at?: string | null;
+          is_free_email_provider?: boolean;
+          is_role_mailbox?: boolean;
+          notes?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          verification_id?: string;
+          verifier_email_domain?: string;
+          official_domain?: string | null;
+          classification?: VerifierDomainClassification;
+          has_mx?: boolean;
+          has_spf?: boolean;
+          has_dmarc?: boolean;
+          domain_registered_at?: string | null;
+          is_free_email_provider?: boolean;
+          is_role_mailbox?: boolean;
+          notes?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_personal_project_details: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          what_you_made: string;
+          why_you_made_it: string;
+          your_part: string;
+          made_for: string | null;
+          problem_or_goal: string | null;
+          tools_or_materials: string | null;
+          difficult_or_interesting: string | null;
+          result: string | null;
+          improvement_ideas: string | null;
+          collaborators: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          what_you_made: string;
+          why_you_made_it: string;
+          your_part: string;
+          made_for?: string | null;
+          problem_or_goal?: string | null;
+          tools_or_materials?: string | null;
+          difficult_or_interesting?: string | null;
+          result?: string | null;
+          improvement_ideas?: string | null;
+          collaborators?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          what_you_made?: string;
+          why_you_made_it?: string;
+          your_part?: string;
+          made_for?: string | null;
+          problem_or_goal?: string | null;
+          tools_or_materials?: string | null;
+          difficult_or_interesting?: string | null;
+          result?: string | null;
+          improvement_ideas?: string | null;
+          collaborators?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_possession_challenges: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          challenge_token_hash: string;
+          evidence_file_id: string | null;
+          status: PortfolioPossessionChallengeStatus;
+          expires_at: string;
+          confirmed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          challenge_token_hash: string;
+          evidence_file_id?: string | null;
+          status?: PortfolioPossessionChallengeStatus;
+          expires_at: string;
+          confirmed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          challenge_token_hash?: string;
+          evidence_file_id?: string | null;
+          status?: PortfolioPossessionChallengeStatus;
+          expires_at?: string;
+          confirmed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      integrity_signals: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string | null;
+          related_user_id: string | null;
+          signal_type: IntegritySignalType;
+          risk_level: IntegrityRiskLevel;
+          details: Record<string, unknown>;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id?: string | null;
+          related_user_id?: string | null;
+          signal_type: IntegritySignalType;
+          risk_level?: IntegrityRiskLevel;
+          details?: Record<string, unknown>;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string | null;
+          related_user_id?: string | null;
+          signal_type?: IntegritySignalType;
+          risk_level?: IntegrityRiskLevel;
+          details?: Record<string, unknown>;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      integrity_reviews: {
+        Row: {
+          id: string;
+          user_id: string;
+          signal_id: string;
+          reviewer_email: string;
+          decision: IntegrityReviewDecision;
+          reason: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          signal_id: string;
+          reviewer_email: string;
+          decision: IntegrityReviewDecision;
+          reason: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          signal_id?: string;
+          reviewer_email?: string;
+          decision?: IntegrityReviewDecision;
+          reason?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      rate_limit_counters: {
+        Row: {
+          id: string;
+          user_id: string;
+          bucket: RateLimitBucket;
+          window_start: string;
+          count: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          bucket: RateLimitBucket;
+          window_start: string;
+          count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          bucket?: RateLimitBucket;
+          window_start?: string;
+          count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      user_roles: {
+        Row: {
+          id: string;
+          user_id: string;
+          role: UserRoleValue;
+          granted_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          role: UserRoleValue;
+          granted_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          role?: UserRoleValue;
+          granted_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -1648,6 +2304,21 @@ export type Database = {
           p_onboarding_version: number;
         };
         Returns: void;
+      };
+      increment_rate_limit_counter: {
+        Args: {
+          p_bucket: RateLimitBucket;
+          p_window_start: string;
+        };
+        Returns: number;
+      };
+      increment_rate_limit_counter_for_user: {
+        Args: {
+          p_user_id: string;
+          p_bucket: RateLimitBucket;
+          p_window_start: string;
+        };
+        Returns: number;
       };
     };
     Enums: Record<string, never>;

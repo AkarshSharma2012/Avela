@@ -12,6 +12,7 @@
  * and how completely.
  */
 
+import { textSimilarity } from "@/lib/osint/matching";
 import type { PortfolioItem } from "@/types/portfolio";
 import type { PortfolioVerificationLevel } from "@/types/database";
 
@@ -64,6 +65,15 @@ export type ProfileStrengthInput = {
    * of this map, by design (fairness rule below).
    */
   verificationLevelByItemId?: ReadonlyMap<string, PortfolioVerificationLevel>;
+  /**
+   * Milestone 10.7 anti-farming inputs — every one optional and additive;
+   * omitting them reproduces this function's pre-10.7 behavior exactly
+   * (see tests/portfolio/strength.test.ts's backward-compatibility check).
+   */
+  /** Portfolio item id -> the verifier email that confirmed it (only relevant for externally_confirmed items) — caps how much trust bonus a single verifier can generate (spec section 10). */
+  verifierEmailByItemId?: ReadonlyMap<string, string>;
+  /** Items whose only proof is evidence already used on a different item (spec section 9: "reused evidence provides no repeated bonus") — excluded from the PROOF bucket's numerator, though they still count as documented items elsewhere. */
+  duplicateEvidenceItemIds?: ReadonlySet<string>;
 };
 
 /**
@@ -95,6 +105,68 @@ function round(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+const NEAR_DUPLICATE_ITEM_SIMILARITY_THRESHOLD = 0.85;
+
+/**
+ * Groups near-identical items of the same type into clusters and returns
+ * each item's cluster representative (the earliest-created member) — spec
+ * section 9/10's "splitting one project into many entries" and "many
+ * nearly identical verified entries" farming patterns both collapse into
+ * this one dedup step, since both are the same underlying signal. Items
+ * stay fully visible and editable; this only affects which ones count
+ * toward COVERAGE/VOLUME/COMPLETENESS below.
+ */
+export function clusterNearDuplicateItems(items: readonly PortfolioItem[]): Map<string, string> {
+  const clusters: PortfolioItem[][] = [];
+
+  for (const item of items) {
+    const match = clusters.find((cluster) => {
+      const representative = cluster[0]!;
+      if (representative.item_type !== item.item_type) return false;
+      const similarity = textSimilarity(
+        `${representative.title} ${representative.description ?? ""}`,
+        `${item.title} ${item.description ?? ""}`
+      );
+      return similarity >= NEAR_DUPLICATE_ITEM_SIMILARITY_THRESHOLD;
+    });
+    if (match) {
+      match.push(item);
+    } else {
+      clusters.push([item]);
+    }
+  }
+
+  const representativeByItemId = new Map<string, string>();
+  for (const cluster of clusters) {
+    const representative = cluster.reduce((earliest, item) =>
+      new Date(item.created_at).getTime() < new Date(earliest.created_at).getTime() ? item : earliest
+    );
+    for (const item of cluster) representativeByItemId.set(item.id, representative.id);
+  }
+  return representativeByItemId;
+}
+
+/** Spec section 10: "one verifier cannot generate unlimited trust bonus." Beyond a small number of items, the same verifier email's further confirmations are capped at the evidence_added weight for scoring purposes only — the underlying verification_level, evidence, and audit trail are completely untouched; this only affects the trust-bonus computation below. */
+const MAX_FULL_TRUST_ITEMS_PER_VERIFIER = 3;
+const PER_VERIFIER_CAPPED_WEIGHT = TRUST_WEIGHT_BY_LEVEL.evidence_added;
+
+function computeTrustWeights(
+  items: readonly PortfolioItem[],
+  verificationLevelByItemId: ReadonlyMap<string, PortfolioVerificationLevel> | undefined,
+  verifierEmailByItemId: ReadonlyMap<string, string> | undefined
+): number[] {
+  const itemsCreditedPerVerifier = new Map<string, number>();
+  return items.map((item) => {
+    const baseWeight = TRUST_WEIGHT_BY_LEVEL[verificationLevelByItemId?.get(item.id) ?? "unverified"];
+    const verifierEmail = verifierEmailByItemId?.get(item.id)?.trim().toLowerCase();
+    if (!verifierEmail || baseWeight <= PER_VERIFIER_CAPPED_WEIGHT) return baseWeight;
+
+    const creditedSoFar = itemsCreditedPerVerifier.get(verifierEmail) ?? 0;
+    itemsCreditedPerVerifier.set(verifierEmail, creditedSoFar + 1);
+    return creditedSoFar < MAX_FULL_TRUST_ITEMS_PER_VERIFIER ? baseWeight : PER_VERIFIER_CAPPED_WEIGHT;
+  });
+}
+
 function itemCompletenessFraction(item: PortfolioItem): number {
   const fields = [item.start_date !== null, item.outcome !== null && item.outcome.trim().length > 0, item.skills.length > 0];
   const filled = fields.filter(Boolean).length;
@@ -120,7 +192,7 @@ const PROOF_MAX = 15;
 const LINKED_MAX = 10;
 
 export function computeProfileStrength(input: ProfileStrengthInput): ProfileStrength {
-  const { items, fileCountByItemId, linkedItemIds, verificationLevelByItemId } = input;
+  const { items, fileCountByItemId, linkedItemIds, verificationLevelByItemId, verifierEmailByItemId, duplicateEvidenceItemIds } = input;
   const maxScore = COVERAGE_MAX + VOLUME_MAX + COMPLETENESS_MAX + PROOF_MAX + LINKED_MAX + TRUST_MAX;
 
   if (items.length === 0) {
@@ -132,27 +204,38 @@ export function computeProfileStrength(input: ProfileStrengthInput): ProfileStre
     };
   }
 
-  const distinctTypes = new Set(items.map((item) => item.item_type)).size;
+  // Spec section 9/10: near-duplicate/split-project entries earn no extra
+  // COVERAGE/VOLUME/COMPLETENESS credit — only one representative per
+  // cluster counts toward these three buckets. Every item still displays
+  // normally and still counts fully for PROOF/LINKED/TRUST below, which are
+  // fraction-based and already resistant to inflation by item count.
+  const representativeByItemId = clusterNearDuplicateItems(items);
+  const representativeItems = items.filter((item) => representativeByItemId.get(item.id) === item.id);
+
+  const distinctTypes = new Set(representativeItems.map((item) => item.item_type)).size;
   const coveragePoints = round(Math.min(distinctTypes / COVERAGE_TYPES_FOR_FULL_CREDIT, 1) * COVERAGE_MAX);
 
-  const volumePoints = round(Math.min(items.length / VOLUME_ITEMS_FOR_FULL_CREDIT, 1) * VOLUME_MAX);
+  const volumePoints = round(Math.min(representativeItems.length / VOLUME_ITEMS_FOR_FULL_CREDIT, 1) * VOLUME_MAX);
 
-  const avgCompleteness = items.reduce((sum, item) => sum + itemCompletenessFraction(item), 0) / items.length;
+  const avgCompleteness =
+    representativeItems.reduce((sum, item) => sum + itemCompletenessFraction(item), 0) / representativeItems.length;
   const completenessPoints = round(avgCompleteness * COMPLETENESS_MAX);
 
   const proofRelevantItems = items.filter((item) => PROOF_RELEVANT_ITEM_TYPES.has(item.item_type));
   const proofFraction =
     proofRelevantItems.length === 0
       ? 1
-      : proofRelevantItems.filter((item) => (fileCountByItemId.get(item.id) ?? 0) > 0 || Boolean(item.url)).length /
-        proofRelevantItems.length;
+      : proofRelevantItems.filter((item) => {
+          const hasProof = (fileCountByItemId.get(item.id) ?? 0) > 0 || Boolean(item.url);
+          return hasProof && !duplicateEvidenceItemIds?.has(item.id);
+        }).length / proofRelevantItems.length;
   const proofPoints = round(proofFraction * PROOF_MAX);
 
   const linkedFraction = items.filter((item) => linkedItemIds.has(item.id)).length / items.length;
   const linkedPoints = round(linkedFraction * LINKED_MAX);
 
-  const trustFraction =
-    items.reduce((sum, item) => sum + TRUST_WEIGHT_BY_LEVEL[verificationLevelByItemId?.get(item.id) ?? "unverified"], 0) / items.length;
+  const trustWeights = computeTrustWeights(items, verificationLevelByItemId, verifierEmailByItemId);
+  const trustFraction = trustWeights.reduce((sum, weight) => sum + weight, 0) / items.length;
   const trustPoints = round(trustFraction * TRUST_MAX);
 
   const reasons: ProfileStrengthReason[] = [
@@ -176,6 +259,9 @@ export function computeProfileStrength(input: ProfileStrengthInput): ProfileStre
   }
   if (linkedFraction < 1) {
     suggestions.push("Attach evidence to an application from your Applications page.");
+  }
+  if (representativeItems.length < items.length) {
+    suggestions.push("Some entries look very similar — consider combining them or highlighting what's different about each.");
   }
 
   const score = Math.round(coveragePoints + volumePoints + completenessPoints + proofPoints + linkedPoints + trustPoints);

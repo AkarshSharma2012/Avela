@@ -386,3 +386,85 @@ remains read in exactly the one place it always has been:
 `scripts/import-opportunities.ts`, unrelated to this milestone. Storage
 RLS (not a service-role bypass) is what makes upload/download/delete work
 under the student's own privileges.
+
+---
+
+# Security — Milestone 10.7 additions (Identity, Claim Integrity, Universal Project Verification, Anti-Gaming Hardening)
+
+## Threat model
+
+One successful check must never verify an entire portfolio entry. Every
+row below separates what a signal actually proves from what it doesn't,
+so no single control (an inbox click, a repo match, an uploaded photo) is
+ever allowed to read as "this whole entry is true." Language throughout
+this milestone — code comments, event `reason` strings, reviewer-facing
+copy, student-facing copy — stays neutral: `containsForbiddenLanguage()`
+(`src/lib/verification/messages.ts`) is reused everywhere a free-text
+reason is written, and this milestone extends `FORBIDDEN_WORDS` rather
+than introducing a second list. No automated signal in this milestone
+ever sets `rejected`, blocks portfolio creation, blocks an application, or
+decides admissions/eligibility — every detection path here only ever
+raises a risk level or routes to a human reviewer queue.
+
+### Identity & GitHub
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Claiming another person's GitHub repo | Repo ownership/contributor/commit-author status via GitHub REST | Whether the "student" behind a connected account is really them | OAuth-based `connected_identities` ties ownership credit to a signed-in GitHub session, not a typed string (Phase 2) | Typed `github_username` never earns identity credit, only a search hint | "Connect your GitHub account to confirm control." | No — structural prevention, not a judgment call |
+| Entering another person's GitHub username | Exact-login match against connector calls | Whether the typer controls that account | Same as above — manual entry is permanently capped below `strongly_supported` for identity | n/a (prevented, not detected) | Same as above | No |
+| Claiming a fork as original work | Parent-repo relationship via GitHub API | Whether fork commits are meaningfully original | Fork vs. parent is always shown separately; only the student's own commits/diffs count toward authorship | Large parent-history overlap with near-zero student-authored diff | "Authorship: not independently confirmed for forked history." | No — scoring cap, not an accusation |
+| One tiny commit, claiming full authorship | Commit count/lines authored by the connected identity | True effort/ownership | `authorship_or_contribution` dimension scores from actual contribution volume, never presence alone | Contribution share far below claimed role (e.g. "sole creator") | "Role as sole creator: not independently confirmed." | Optional — flagged for `additional_evidence_recommended` |
+| Org-owned work claimed as personal project | Repo/org ownership via API, org's public member list | Private org membership or internal authorization | `organization_relationship` dimension is separate from `project_or_activity_exists`; org-owned repos never inherit personal-project trust | Org-owned repo + `project_context = personal_project` | "This looks like it may belong to an organization — you can add that context." | Optional |
+
+### Exaggeration & role/date/impact claims
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Exaggerating role, dates, hours, users, revenue, impact, awards | Consistency with evidence/verifier-confirmed fields | The true numbers, ever, from public sources alone | `impact_or_outcome` and `dates_and_duration` are dimensions independent of `project_or_activity_exists`; nothing here ever confirms a number Avela didn't independently observe | Verifier-confirmed scope narrower than displayed claim (Phase 6) | "Some details were not independently confirmed." | Optional |
+| Fake organization / recently registered domain | RDAP registration context (existing `rdap.ts`), MX/SPF/DMARC presence | Whether an organization is legitimate — domain age is context, not proof | Domain checks are supporting evidence only, never gate submission | New-domain-used-immediately pattern (Phase 6) | "We could not confirm this organization's domain — you can still continue." | Yes — `manual_review_required` |
+| Lookalike domains / misleading redirects | Domain string compared to a curated/official domain; redirect chain (reusing `url-safety.ts`'s SSRF-safe fetch, capped hops) | Intent | `verifier-legitimacy.ts` never trusts a domain string alone — always resolves MX and compares registrable domain, not substring match | Domain mismatch classification | "This email does not match the organization's website. You may still continue." | Optional |
+| Same-name credential/award confusion | Issuer/org name string only | Whether two same-named issuers are the same entity | `award_or_credential` dimension never auto-upgrades from name match alone | Name match with no other corroborating field | "We could not confirm which organization issued this." | Optional |
+
+### Verifier legitimacy & collusion
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Friend/relative as verifier | Nothing directly — no relationship graph exists or is built | Real-world relationships (explicitly out of scope — no relatives/social-graph lookups) | Verifier must state "relationship to student" and which fields they can confirm; this is disclosed context, not proof | Same verifier reused across unrelated students (below) | n/a directly; surfaces via reuse pattern | Optional |
+| Student's own second email as verifier | Verifier email vs. student's account email (exact + light normalization) | A truly different but student-controlled inbox | Hard block: verifier email cannot equal the student's own account email | n/a (blocked at request time) | "A verifier must be someone other than you." | No |
+| Free/disposable email verifier | MX record presence, known free-webmail list, known disposable-domain list | Whether the person is legitimate — free email is common and often legitimate (teachers, coaches) | Classified, never blocked: `personal_or_free_email`/`suspicious_or_disposable` | Disposable domain match, missing MX | "This confirms participation, but not organizational authority." | Disposable → yes; free webmail → no |
+| Several verifier identities created (by the student) | Cannot detect directly (would require cross-account correlation Avela doesn't build) | Whether two verifier emails are "the same person" | Rate limits on requests/resends per item | Unusually high distinct-verifier count in a short window (Phase 6 velocity signal) | n/a directly | Optional |
+| One verifier repeatedly confirming unrelated students | Verifier email appears across multiple students' `portfolio_verifications` rows | Whether reuse is legitimate (a real coach/teacher verifies many students) or manufactured | None — by design, legitimate repeat verifiers exist (a teacher) | `repeated_verifier_pattern` signal counts distinct students per verifier email in a rolling window | Not shown to the student at all — reviewer-only signal | Yes |
+| Manufacturing confirmations via multiple student accounts (circular verification) | Verifier email == another student's own account email | Coordinated intent | Same self-verification block applied bidirectionally | Circular pair detector (Phase 6): A verifies for B, B verifies for A | n/a directly; reviewer-only | Yes |
+
+### Evidence & content integrity
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Reusing the same document/image/certificate/URL across claims | Existing `findDuplicateEvidenceUsage` (file id / URL exact match); extended to cross-claim image hash | Whether reuse is legitimate (the same certificate genuinely applies to two entries) | No blocking — reused evidence gives no *additional* profile-strength credit (Phase 8) | Exact hash + perceptual-hash match across unrelated items (Phase 4/6) | "This evidence may also appear on another entry." | Optional |
+| Copying project photographs from the internet | Perceptual/duplicate hash only — no reverse-image API key exists in this environment | Whether an image was copied — similarity is not proof | `VisualSimilarityProvider` interface ships with a no-op default; a real provider is opt-in, never required | Optional visual-similarity provider (unconfigured by default) | "This evidence may also appear elsewhere — you can still keep it." | Optional, never automatic |
+| AI-generated images/documents | Nothing reliable — Avela does not implement AI-content detection | Whether content is AI-generated — no reliable signal exists | AI-detection is explicitly never implemented as a trust signal | n/a | n/a | Never auto-flagged on this basis |
+
+### Post-verification integrity
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Editing a claim after verification | Field-level diff against the last material-hash snapshot (Phase 5) | Intent behind the edit | Material changes automatically stale/downgrade only the *affected* dimensions, never silently keep old trust | `material-hash.ts` diff on every save | "Some details changed after verification — the affected parts need a fresh check." | No — automatic, explainable |
+| Replacing evidence after verification | Evidence-file/URL id change on the verification row | Intent | Evidence replacement always re-triggers evaluation of dependent dimensions | Existing `evidence_replaced` event type, now wired to invalidation | Same as above | No |
+| Deleting conflicting evidence while keeping a badge | Evidence delete event vs. existing verified dimensions | Intent | Deleting evidence downgrades any dimension that depended on it; audit history (`portfolio_verification_events`/`claim_dimension_events`) is append-only and immutable regardless of what's deleted | Dependency map lookup on delete (Phase 5) | "This entry's support level was updated after evidence was removed." | No |
+| Repeatedly sending verification requests until someone confirms | Resend/request counters (existing 24h cooldown + 3 resend cap) | Intent | Existing cap stays; Phase 6 adds a DB-backed limiter for new request types (connect attempts, challenges) so the same pattern can't route around the in-memory limiter via a new endpoint | Request velocity signal | "You've reached the limit for this request type — try again later." | No — rate limit, not a judgment |
+
+### Anti-gaming / volume farming
+
+| Abuse case | Avela can check | Avela cannot know | Prevention | Detection | Student-facing result | Human review |
+|---|---|---|---|---|---|---|
+| Splitting one project into many entries to farm points | Title/description/date-range similarity across a student's own items (`textSimilarity`, reused from `osint/matching.ts`) | Whether split entries are genuinely distinct efforts | Near-duplicate clustering in `strength.ts` counts one representative per cluster for VOLUME/COVERAGE/COMPLETENESS — items stay visible and editable, just not double-counted (Phase 8) | Same clustering, surfaced as a soft signal | "This may be part of a larger project you've already added." | Optional |
+| Creating many nearly identical verified entries | Same clustering + duplicate evidence hash across items | Same as above | Same as above | Same as above | Same as above | Optional |
+| Reviewer misuse | Reviewer acting on their own claim; reviewer decision without a reason | Reviewer intent | Conflict-of-interest guard blocks a reviewer from deciding their own claim (Phase 7); reason is required and stored immutably | Guard check at decision time | n/a (reviewer-facing) | N/A — structural block |
+| Exposed verification links or tokens | Token possession alone | Whether the presenter is the intended verifier | Tokens are single-purpose, hash-only stored (existing `tokens.ts` pattern reused for every new token type — OAuth state, possession challenges), short expiry, one active token per request | Constant-time hash compare; expired/revoked tokens fail closed | "This link is no longer valid." | No |
+| Duplicate rows from race conditions | Unique constraints (`portfolio_verifications_one_per_item`, and the new `connected_identities` unique-active-index) | n/a | Select-then-insert-with-unique-constraint-backstop pattern, cloned from `ensureVerificationRow` (`verification/repository.ts:44-62`), reused for every new "ensure one row" path | `23505` conflict handling, re-select-on-race | n/a (invisible to the student) | No |
+
+## Data classifications introduced this milestone
+
+- **Reviewer-only, never shown to the subject student**: `integrity_signals`, `integrity_reviews` — these exist to route human review, not to accuse a student, and showing "you have been flagged" to the person being evaluated would itself be the harm the spec asks to avoid.
+- **Never collected, anywhere, by design**: facial recognition, home address, phone number, relatives, private/login-gated social media, school schedules, leaked databases, people-search results. No connector or provider added this milestone reads any of these.
+- **Minors**: every new student-facing prompt (personal-project narrative, possession-challenge photo) explicitly never requires a face or location; EXIF is stripped before any image is retained past the possession check.

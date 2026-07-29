@@ -111,3 +111,39 @@ export const DISPOSABLE_EMAIL_DOMAINS: readonly string[] = [
   "throwawaymail.com",
   "getnada.com",
 ];
+
+/**
+ * Common free-webmail providers (spec section 5). Being on this list is
+ * never disqualifying by itself — a teacher, coach, or nonprofit staffer
+ * legitimately using personal email is exactly the case the spec calls out
+ * ("free-email verifiers may be legitimate") — it only changes the
+ * classification a verifier-domain check reports (personal_or_free_email,
+ * never domain_mismatch/suspicious_or_disposable).
+ */
+export const FREE_EMAIL_PROVIDERS: readonly string[] = [
+  "gmail.com",
+  "yahoo.com",
+  "outlook.com",
+  "hotmail.com",
+  "icloud.com",
+  "aol.com",
+  "protonmail.com",
+  "live.com",
+  "msn.com",
+];
+
+/** Generic role-mailbox local parts (spec section 5) — supporting context, not disqualifying. */
+export const ROLE_MAILBOX_LOCAL_PARTS: readonly string[] = [
+  "info",
+  "admin",
+  "contact",
+  "support",
+  "help",
+  "office",
+  "hello",
+  "team",
+  "mail",
+  "webmaster",
+  "noreply",
+  "no-reply",
+];

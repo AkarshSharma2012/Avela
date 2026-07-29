@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { computeProfileStrength, isPortfolioItemIncomplete, type ProfileStrengthInput } from "@/lib/portfolio/strength";
+import { clusterNearDuplicateItems, computeProfileStrength, isPortfolioItemIncomplete, type ProfileStrengthInput } from "@/lib/portfolio/strength";
 import type { PortfolioItem } from "@/types/portfolio";
 import type { PortfolioItemType } from "@/types/database";
 
@@ -24,6 +24,9 @@ function makeItem(overrides: Partial<PortfolioItem> & { item_type: PortfolioItem
     tags: [],
     url: null,
     github_username: null,
+    project_context: null,
+    last_material_hash: null,
+    material_hash_updated_at: null,
     visibility: "visible",
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-01T00:00:00Z",
@@ -164,6 +167,86 @@ describe("computeProfileStrength — verification trust bonus (Milestone 10.5)",
     const volunteerTrust = volunteerResult.reasons.find((r) => r.label.startsWith("Evidence verification"));
     const paidTrust = paidResult.reasons.find((r) => r.label.startsWith("Evidence verification"));
     expect(volunteerTrust?.points).toBe(paidTrust?.points);
+  });
+});
+
+describe("clusterNearDuplicateItems (Milestone 10.7 anti-farming)", () => {
+  it("groups near-identical items of the same type into one cluster", () => {
+    const a = makeItem({ item_type: "project", id: "a", title: "Robotics competition robot", description: "Built a robot with my team for the regional STEM fair." });
+    const b = makeItem({ item_type: "project", id: "b", title: "Robotics competition robot", description: "Built a robot with my team for the regional STEM fair." });
+    const map = clusterNearDuplicateItems([a, b]);
+    expect(map.get("a")).toBe(map.get("b"));
+  });
+
+  it("never clusters genuinely different items, even of the same type", () => {
+    const a = makeItem({ item_type: "project", id: "a", title: "Robotics competition robot" });
+    const b = makeItem({ item_type: "project", id: "b", title: "Community garden irrigation system" });
+    const map = clusterNearDuplicateItems([a, b]);
+    expect(map.get("a")).not.toBe(map.get("b"));
+  });
+
+  it("never clusters similar text across different item types", () => {
+    const a = makeItem({ item_type: "project", id: "a", title: "Food drive" });
+    const b = makeItem({ item_type: "volunteer_service", id: "b", title: "Food drive" });
+    const map = clusterNearDuplicateItems([a, b]);
+    expect(map.get("a")).not.toBe(map.get("b"));
+  });
+});
+
+describe("computeProfileStrength — anti-farming (Milestone 10.7)", () => {
+  it("gives no extra COVERAGE/VOLUME/COMPLETENESS credit for splitting one project into near-identical entries", () => {
+    const single = score([makeItem({ item_type: "project", id: "1", title: "Robot build", description: "Built a robot for the regional fair with my team." })]);
+    const split = score(
+      Array.from({ length: 5 }, (_, i) =>
+        makeItem({ item_type: "project", id: `dup-${i}`, title: "Robot build", description: "Built a robot for the regional fair with my team." })
+      )
+    );
+    const volumeOf = (r: ReturnType<typeof score>) => r.reasons.find((reason) => reason.label.includes("documented"))!.points;
+    expect(volumeOf(split)).toBe(volumeOf(single));
+    expect(split.score).toBe(single.score);
+  });
+
+  it("still scores genuinely distinct items independently, not collapsed by the dedup step", () => {
+    const distinct = score([
+      makeItem({ item_type: "project", id: "1", title: "Robotics build" }),
+      makeItem({ item_type: "award", id: "2", title: "Science fair award" }),
+    ]);
+    const volumeReason = distinct.reasons.find((r) => r.label.includes("documented"));
+    expect(volumeReason?.points).toBeGreaterThan(0);
+  });
+
+  it("caps how much trust bonus a single verifier can generate across many items", () => {
+    const manyItems = Array.from({ length: 6 }, (_, i) => makeItem({ item_type: "award", id: `item-${i}`, title: `Award ${i}` }));
+    const sameVerifier = score(manyItems, {
+      verificationLevelByItemId: new Map(manyItems.map((item) => [item.id, "externally_confirmed"])),
+      verifierEmailByItemId: new Map(manyItems.map((item) => [item.id, "coach@example.com"])),
+    });
+    const differentVerifiers = score(manyItems, {
+      verificationLevelByItemId: new Map(manyItems.map((item) => [item.id, "externally_confirmed"])),
+      verifierEmailByItemId: new Map(manyItems.map((item, i) => [item.id, `verifier${i}@example.com`])),
+    });
+    const trustReason = (r: ReturnType<typeof score>) => r.reasons.find((reason) => reason.label.startsWith("Evidence verification"))!;
+    expect(trustReason(sameVerifier).points).toBeLessThan(trustReason(differentVerifiers).points);
+    expect(trustReason(differentVerifiers).points).toBe(trustReason(differentVerifiers).maxPoints);
+  });
+
+  it("gives no repeated proof bonus for evidence already used on a different item", () => {
+    const item = makeItem({ item_type: "award", id: "a1" });
+    const withReusedEvidence = score([item], { fileCountByItemId: new Map([["a1", 1]]), duplicateEvidenceItemIds: new Set(["a1"]) });
+    const withOwnEvidence = score([item], { fileCountByItemId: new Map([["a1", 1]]) });
+    const proofOf = (r: ReturnType<typeof score>) => r.reasons.find((reason) => reason.label.startsWith("Proof attached"))!.points;
+    expect(proofOf(withReusedEvidence)).toBeLessThan(proofOf(withOwnEvidence));
+  });
+
+  it("suggests combining entries only when the dedup step actually collapsed something", () => {
+    const noDuplicates = score([makeItem({ item_type: "project", id: "1", title: "A" }), makeItem({ item_type: "award", id: "2", title: "B" })]);
+    expect(noDuplicates.suggestions.some((s) => s.includes("look very similar"))).toBe(false);
+
+    const withDuplicates = score([
+      makeItem({ item_type: "project", id: "1", title: "Robot build", description: "Built a robot for the fair." }),
+      makeItem({ item_type: "project", id: "2", title: "Robot build", description: "Built a robot for the fair." }),
+    ]);
+    expect(withDuplicates.suggestions.some((s) => s.includes("look very similar"))).toBe(true);
   });
 });
 
