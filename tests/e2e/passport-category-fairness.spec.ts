@@ -81,7 +81,9 @@ test.describe("Team project — personal contribution never auto-filled from the
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(page.getByRole("heading", { name: "Ready" })).toBeVisible();
-    await expect(page.getByText("I personally wrote the control software for our robot.")).toBeVisible();
+    // On desktop (lg+) the same text also appears in the sticky live-preview
+    // column — .first() targets the main card, not asserting exactly one match.
+    await expect(page.getByText("I personally wrote the control software for our robot.").first()).toBeVisible();
     await page.waitForTimeout(500);
     // The team's overall result and the student's personal part are both
     // visible but never merged into one unattributed sentence.
@@ -94,7 +96,8 @@ test.describe("Avela-like software project — GitHub connect capture", () => {
 
   test("connect capture defaults to the software category and detects repository evidence", async ({ page, e2eSession: _e2eSession }) => {
     await page.goto("/portfolio/new");
-    await page.getByRole("button", { name: "Connect an account" }).click();
+    await page.getByRole("button", { name: "Add from a platform" }).click();
+    await page.getByRole("button", { name: "GitHub, Connect" }).click();
     await page.getByLabel("GitHub repository").fill("octocat/example-repo");
     await page.getByRole("button", { name: "Continue" }).click();
 
@@ -154,7 +157,9 @@ test.describe("Unknown/unsupported evidence-type fallback", () => {
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(page.getByRole("heading", { name: "Avela's draft" })).toBeVisible();
-    await expect(page.getByText("unsupported for automatic analysis")).toBeVisible();
+    // Raw enum values (e.g. "unsupported_for_automatic_analysis") are never
+    // shown to a student — see src/lib/portfolio/evidence-labels.ts.
+    await expect(page.getByText("Saved for manual review")).toBeVisible();
   });
 });
 

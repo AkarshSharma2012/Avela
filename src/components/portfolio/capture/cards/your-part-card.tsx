@@ -5,6 +5,8 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/field-error";
+import { getYourPartStarters } from "@/lib/portfolio/capture/category-prompts";
+import type { PassionGroup } from "@/lib/portfolio/taxonomy";
 
 const TEXTAREA_CLASS =
   "flex w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground transition-all duration-[var(--duration-fast)] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30";
@@ -18,6 +20,7 @@ const TEXTAREA_CLASS =
  */
 function YourPartCard({
   prompt,
+  passionGroup,
   yourPart,
   onYourPartChange,
   whyYouDidIt,
@@ -27,6 +30,7 @@ function YourPartCard({
   onContinue,
 }: {
   prompt: string;
+  passionGroup: PassionGroup | null;
   yourPart: string;
   onYourPartChange: (value: string) => void;
   whyYouDidIt: string;
@@ -35,6 +39,13 @@ function YourPartCard({
   onBack: () => void;
   onContinue: () => void;
 }) {
+  const starters = getYourPartStarters(passionGroup);
+
+  function insertStarter(starter: string) {
+    const needsSpace = yourPart.length > 0 && !yourPart.endsWith(" ") && !yourPart.endsWith("\n");
+    onYourPartChange(`${yourPart}${needsSpace ? " " : ""}${starter} `);
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -46,6 +57,20 @@ function YourPartCard({
         <Label htmlFor="your-part" className="text-base font-semibold text-foreground">
           {prompt}
         </Label>
+
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sentence starters">
+          {starters.map((starter) => (
+            <button
+              key={starter}
+              type="button"
+              onClick={() => insertStarter(starter)}
+              className="rounded-full border border-primary/30 bg-card px-2.5 py-1 text-xs font-medium text-primary transition-colors duration-[var(--duration-fast)] hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+            >
+              {starter}
+            </button>
+          ))}
+        </div>
+
         <textarea
           id="your-part"
           className={TEXTAREA_CLASS}

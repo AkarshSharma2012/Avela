@@ -109,7 +109,7 @@ export default async function PortfolioPage({
 
       <section aria-labelledby="strength-heading" className="animate-fade-up mt-8">
         <SectionHeading id="strength-heading">Profile strength</SectionHeading>
-        <div className="mt-3 rounded-md border border-border bg-card px-5 py-4">
+        <div className="mt-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
           <ProfileStrengthMeter strength={strength} />
         </div>
       </section>

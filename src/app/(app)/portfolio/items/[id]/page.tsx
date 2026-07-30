@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Share2 } from "lucide-react";
 
 import { ApplicationsUsingItem } from "@/components/portfolio/applications-using-item";
 import { ArchiveToggleButton } from "@/components/portfolio/archive-toggle-button";
@@ -20,7 +20,8 @@ import { getMyConnectedGithubIdentity, isGithubConnectAvailable } from "@/lib/id
 import { isOsintEligible } from "@/lib/osint/claim-eligibility";
 import { getLatestCheckForItem, listConflictsForCheck, listEvidenceForCheck } from "@/lib/osint/repository";
 import { listApplicationsUsingItem } from "@/lib/portfolio/evidence-repository";
-import { getPersonalProjectDetails, getPortfolioItem, listFilesForItem } from "@/lib/portfolio/repository";
+import { resolveEntryNarrative } from "@/lib/portfolio/entry-narrative";
+import { getEntryNarrative, getPersonalProjectDetails, getPortfolioItem, listFilesForItem } from "@/lib/portfolio/repository";
 import { createClient } from "@/lib/supabase/server";
 import { deriveRequestStatus } from "@/lib/verification/request";
 import { getVerificationForItem, metadataOf } from "@/lib/verification/repository";
@@ -59,21 +60,27 @@ export default async function PortfolioItemWorkspacePage({ params }: { params: P
     notFound();
   }
 
-  const [files, applicationsUsingItem, verification, dimensions, personalProjectDetails, githubIdentityResult, githubConnectAvailable] = await Promise.all([
-    listFilesForItem(supabase, profile.id, id),
-    listApplicationsUsingItem(supabase, profile.id, id),
-    getVerificationForItem(supabase, profile.id, id),
-    listDimensionsForItem(supabase, profile.id, id),
-    getPersonalProjectDetails(supabase, profile.id, id),
-    getMyConnectedGithubIdentity(),
-    isGithubConnectAvailable(),
-  ]);
+  const [files, applicationsUsingItem, verification, dimensions, personalProjectDetails, entryNarrative, githubIdentityResult, githubConnectAvailable] =
+    await Promise.all([
+      listFilesForItem(supabase, profile.id, id),
+      listApplicationsUsingItem(supabase, profile.id, id),
+      getVerificationForItem(supabase, profile.id, id),
+      listDimensionsForItem(supabase, profile.id, id),
+      getPersonalProjectDetails(supabase, profile.id, id),
+      getEntryNarrative(supabase, profile.id, id),
+      getMyConnectedGithubIdentity(),
+      isGithubConnectAvailable(),
+    ]);
   const claimSupportSummary = summarizeClaimDimensions(dimensions);
   const personalProjectAnswers = {
     whatYouMade: personalProjectDetails?.what_you_made ?? "",
     whyYouMadeIt: personalProjectDetails?.why_you_made_it ?? "",
     yourPart: personalProjectDetails?.your_part ?? "",
   };
+  // Prefers the Milestone 10.8 universal narrative (what the guided capture
+  // flow writes to) over the older personal-project table — see
+  // resolveEntryNarrative's own comment for why exactly one source wins.
+  const resolvedNarrative = resolveEntryNarrative(entryNarrative, personalProjectDetails);
   const requestStatus = verification
     ? deriveRequestStatus({
         requestedAt: verification.requested_at,
@@ -126,6 +133,23 @@ export default async function PortfolioItemWorkspacePage({ params }: { params: P
           </p>
         )}
 
+        <Section id="contribution-heading" title="Your personal contribution">
+          {resolvedNarrative?.yourPart ? (
+            <p className="text-sm text-foreground">{resolvedNarrative.yourPart}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              You haven&apos;t added what you personally did yet — add photos or files below and you&apos;ll be asked for it.
+            </p>
+          )}
+        </Section>
+
+        <Section id="evidence-heading" title="Evidence">
+          <div className="flex flex-col gap-4">
+            <FileList files={files} />
+            <FileUploadForm portfolioItemId={item.id} />
+          </div>
+        </Section>
+
         <PortfolioSupportSection
           item={item}
           files={files}
@@ -139,19 +163,33 @@ export default async function PortfolioItemWorkspacePage({ params }: { params: P
           personalProjectAnswers={personalProjectAnswers}
         />
 
+        <section aria-labelledby="sharing-heading" className="animate-fade-up mt-8">
+          <h2 id="sharing-heading" className="text-xs font-medium tracking-wide text-primary uppercase">
+            Sharing
+          </h2>
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border bg-card px-5 py-4">
+            <div className="flex items-center gap-2.5">
+              <Share2 aria-hidden="true" className="size-4 text-primary" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Share this item for review</p>
+                <p className="text-xs text-muted-foreground">Create a private link a reviewer can open without an account.</p>
+              </div>
+            </div>
+            <Link
+              href="/portfolio/review-links"
+              className="shrink-0 text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+            >
+              Share for review
+            </Link>
+          </div>
+        </section>
+
         <Section id="details-heading" title="Details">
           <PortfolioItemForm item={item} />
         </Section>
 
         <Section id="summary-heading" title="Resume-ready summary">
           <CompletenessChecklist item={item} />
-        </Section>
-
-        <Section id="files-heading" title="Files">
-          <div className="flex flex-col gap-4">
-            <FileList files={files} />
-            <FileUploadForm portfolioItemId={item.id} />
-          </div>
         </Section>
 
         <Section id="applications-heading" title="Applications using this evidence">

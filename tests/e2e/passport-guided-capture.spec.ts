@@ -40,7 +40,10 @@ test.describe("Guided capture flow — create from one sentence", () => {
 
     // Card 5 — Ready
     await expect(page.getByRole("heading", { name: "Ready" })).toBeVisible();
-    await expect(page.getByText("I personally planned and ran the whole thing myself.")).toBeVisible();
+    // On desktop (lg+) the same text also appears in the sticky live-preview
+    // column (spec's "live-preview" workspace) — .first() targets the main
+    // card, not asserting there's exactly one match.
+    await expect(page.getByText("I personally planned and ran the whole thing myself.").first()).toBeVisible();
     await page.getByRole("button", { name: "Save to my portfolio" }).click();
 
     await page.waitForURL(/\/portfolio\/items\//, { timeout: 15_000 });

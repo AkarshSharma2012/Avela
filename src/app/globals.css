@@ -479,6 +479,75 @@
   animation-delay: 280ms;
 }
 
+/*
+ * Story Signal — the Portfolio-specific motif (Milestone 10.9.1, "Signal
+ * Studio"). A row of small bars reading as a rough, jittery signal on
+ * Capture that visibly resolves into a clean waveform by Ready. Heights,
+ * rotation, and color are computed per-bar in story-signal.tsx from fixed
+ * seeds (never Math.random at render time, to stay hydration-safe) and
+ * transition here — no keyframes needed for the resolve itself, just a
+ * transition on the properties that change. The one small keyframe below is
+ * an intentionally sparing ambient glow on the current step's bar only.
+ */
+.story-signal-bar {
+  transition:
+    height var(--duration-page) var(--ease-standard),
+    transform var(--duration-page) var(--ease-standard),
+    background-color var(--duration-page) var(--ease-standard),
+    opacity var(--duration-page) var(--ease-standard);
+}
+
+@keyframes signal-bar-glow {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-signal-bar-glow {
+  animation: signal-bar-glow 1.8s var(--ease-standard) infinite;
+}
+
+/*
+ * Base UI Collapsible/Drawer motion — the standard data-state /
+ * data-starting-style / data-ending-style transition pattern from Base UI's
+ * own animation guide, built entirely from this file's existing duration
+ * and easing tokens (see collapsible.tsx / drawer.tsx). No animation
+ * library — just CSS transitions keyed off the attributes Base UI already
+ * sets on these elements.
+ */
+.collapsible-panel {
+  overflow: hidden;
+  height: var(--collapsible-panel-height, auto);
+  transition: height var(--duration-base) var(--ease-standard);
+}
+.collapsible-panel[data-starting-style],
+.collapsible-panel[data-ending-style] {
+  height: 0;
+}
+
+.drawer-backdrop {
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+.drawer-backdrop[data-starting-style],
+.drawer-backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+.drawer-popup {
+  transition:
+    transform var(--duration-page) var(--ease-standard),
+    opacity var(--duration-page) var(--ease-standard);
+}
+.drawer-popup[data-starting-style],
+.drawer-popup[data-ending-style] {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

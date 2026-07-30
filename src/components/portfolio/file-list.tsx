@@ -2,12 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, FileText, Trash2 } from "lucide-react";
+import { ExternalLink, Trash2 } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { deletePortfolioFile, getPortfolioFileDownloadUrl } from "@/lib/portfolio/actions";
 import { cn } from "@/lib/utils";
+import { friendlyExtractionStatus, SOURCE_KIND_ICON, SOURCE_KIND_LABELS, VISIBILITY_LABEL } from "@/lib/portfolio/evidence-labels";
 import type { PortfolioFile } from "@/types/portfolio";
 
 function formatFileSize(bytes: number): string {
@@ -32,12 +33,27 @@ function FileRow({ file, disabled, onDelete }: { file: PortfolioFile; disabled: 
     window.open(result.url, "_blank", "noopener,noreferrer");
   }
 
+  const sourceKind = file.source_kind ?? "unknown";
+  const SourceIcon = SOURCE_KIND_ICON[sourceKind];
+
   return (
-    <li className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-2.5">
-      <FileText aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+    <li className="flex items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-2.5">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-primary">
+        <SourceIcon aria-hidden="true" className="size-4" />
+      </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">{file.label ?? file.original_filename}</p>
-        <p className="text-xs text-muted-foreground">{formatFileSize(file.file_size)}</p>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+          <span>{formatFileSize(file.file_size)}</span>
+          <span aria-hidden="true">·</span>
+          <span>{SOURCE_KIND_LABELS[sourceKind]}</span>
+          <span aria-hidden="true">·</span>
+          <span>{friendlyExtractionStatus(file.extraction_status)}</span>
+          <span aria-hidden="true">·</span>
+          <span className={cn("font-medium", file.visibility === "private" ? "text-foreground" : "text-primary")}>
+            {VISIBILITY_LABEL[file.visibility]}
+          </span>
+        </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
       <Button type="button" variant="ghost" size="sm" onClick={handleOpen} disabled={disabled || isOpening}>

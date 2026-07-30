@@ -34,7 +34,7 @@ function ReadyCard({
         <p className="mt-1 text-sm text-muted-foreground">Here&apos;s a preview of your portfolio item.</p>
       </div>
 
-      <div className="rounded-xl border border-border bg-card px-5 py-5 shadow-sm">
+      <div className="animate-fade-up rounded-2xl border border-border bg-card px-5 py-5 shadow-glow">
         <ItemTypeBadge itemType={category.itemTypeBucket} />
         <h3 className="mt-2 font-heading text-xl text-foreground">{draft.title.value || "Untitled item"}</h3>
         {draft.organization.value && <p className="mt-0.5 text-sm text-muted-foreground">{draft.organization.value}</p>}
@@ -65,7 +65,7 @@ function ReadyCard({
           <ArrowLeft aria-hidden="true" className="size-4" /> Back
         </Button>
         <Button type="button" onClick={onSave} disabled={isSaving}>
-          <CheckCircle2 aria-hidden="true" className="size-4" />
+          <CheckCircle2 aria-hidden="true" className="animate-dot-pop size-4" />
           {isSaving ? "Saving…" : "Save to my portfolio"}
         </Button>
       </div>

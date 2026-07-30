@@ -30,12 +30,17 @@ function PortfolioItemCard({
   const incomplete = isPortfolioItemIncomplete(item);
 
   return (
-    <article className="flex flex-col gap-2.5 rounded-md border border-border bg-card px-5 py-4">
+    <article className="hover-lift flex flex-col gap-2.5 rounded-xl border border-border bg-card px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <ItemTypeBadge itemType={item.item_type} />
             <VerificationBadge level={verificationLevel ?? "unverified"} />
+            {item.visibility === "archived" && (
+              <span className="inline-flex w-fit items-center rounded-full border border-border bg-secondary px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                Archived
+              </span>
+            )}
           </div>
           <h3 className="mt-1.5 font-heading text-base text-foreground">
             <Link

@@ -28,3 +28,25 @@ export function getYourPartPrompt(passionGroup: PassionGroup | null): string {
   if (!passionGroup) return DEFAULT_YOUR_PART_PROMPT;
   return YOUR_PART_PROMPTS[passionGroup] ?? DEFAULT_YOUR_PART_PROMPT;
 }
+
+/** Optional, clickable sentence starters (spec's Your Part screen: "optional sentence starters") — purely a writing nudge, never persisted separately from the free-text answer they get inserted into. */
+export const YOUR_PART_STARTERS: Record<PassionGroup, string[]> = {
+  software_and_technology: ["I designed and built…", "I wrote the code that…", "I made the decision to…"],
+  making_and_engineering: ["I designed and built…", "I tested and fixed…", "I was responsible for…"],
+  art_and_design: ["I created…", "I made the choice to…", "My style/technique was…"],
+  music_and_audio: ["I performed…", "I composed/arranged…", "I produced/organized…"],
+  performing_arts: ["I performed as…", "I directed/choreographed…", "I organized…"],
+  writing_and_media: ["I wrote…", "I edited…", "I produced…"],
+  science_and_academics: ["I researched…", "I analyzed…", "I wrote up…"],
+  community_and_leadership: ["I planned…", "I coordinated…", "I decided…"],
+  sports_and_competition: ["My role was…", "I trained by…", "My result was…"],
+  business_and_entrepreneurship: ["I built…", "I decided…", "I ran…"],
+  home_family_and_life_skills: ["I was responsible for…", "The people who depended on me were…", "I did this regularly by…"],
+};
+
+const DEFAULT_YOUR_PART_STARTERS = ["I was responsible for…", "I personally…", "The part that was mine was…"];
+
+export function getYourPartStarters(passionGroup: PassionGroup | null): string[] {
+  if (!passionGroup) return DEFAULT_YOUR_PART_STARTERS;
+  return YOUR_PART_STARTERS[passionGroup] ?? DEFAULT_YOUR_PART_STARTERS;
+}
