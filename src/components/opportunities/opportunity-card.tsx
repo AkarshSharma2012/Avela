@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowRight, Lightbulb, TriangleAlert } from "lucide-react";
+import { ArrowRight, Clock, Lightbulb, TriangleAlert } from "lucide-react";
 
 import { EligibilityBadge } from "@/components/opportunities/eligibility-badge";
 import { MatchBadge } from "@/components/opportunities/match-badge";
+import { OpportunityTypeIcon } from "@/components/opportunities/opportunity-type-icon";
 import {
   RecommendationFeedbackControls,
   type RecommendationFeedbackState,
@@ -19,6 +20,7 @@ import {
   formatGradeRange,
   formatLastVerified,
   formatLocation,
+  isClosingSoon,
 } from "@/lib/opportunities/format";
 import type { MatchResult, MatchTier } from "@/lib/opportunities/matching";
 import { cn } from "@/lib/utils";
@@ -27,7 +29,7 @@ import type { Opportunity } from "@/types/opportunity";
 /** A quiet left-edge accent tying a card's color to how well it fits — never the card's only signal (MatchBadge's icon+text stays the source of truth), just a scannable hint across a grid of cards. */
 const TIER_ACCENT: Record<MatchTier, string> = {
   strong_fit: "border-l-primary",
-  possible_fit: "border-l-gold",
+  possible_fit: "border-l-signal",
   limited_fit: "border-l-border",
 };
 
@@ -61,28 +63,33 @@ function OpportunityCard({
     opportunity.deadline_status === "unknown" || eligibilityResult.status === "unclear";
   const whyItFits =
     showWhyItFits && matchResult.tier !== "limited_fit" ? matchResult.reasons[0] : null;
+  const closingSoon =
+    opportunity.deadline_status === "open" && isClosingSoon(opportunity.application_deadline);
 
   return (
     <article
       className={cn(
-        "flex flex-col gap-3 rounded-md border border-l-4 border-border bg-card px-5 py-4",
+        "hover-lift group/card flex flex-col gap-3 rounded-lg border border-l-4 border-border bg-card px-5 py-4 shadow-sm",
         TIER_ACCENT[matchResult.tier]
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-heading text-lg text-foreground">
-            <Link
-              href={`/opportunities/${opportunity.id}`}
-              className="rounded-sm hover:underline focus-visible:underline focus-visible:outline-none"
-            >
-              {opportunity.title}
-            </Link>
-          </h3>
-          <p className="text-sm text-muted-foreground">{opportunity.organization}</p>
-          {sourceName && (
-            <p className="text-xs text-muted-foreground">Source: {sourceName}</p>
-          )}
+        <div className="flex items-start gap-3">
+          <OpportunityTypeIcon type={opportunity.opportunity_type} />
+          <div>
+            <h3 className="font-heading text-lg text-foreground">
+              <Link
+                href={`/opportunities/${opportunity.id}`}
+                className="rounded-sm hover:underline focus-visible:underline focus-visible:outline-none"
+              >
+                {opportunity.title}
+              </Link>
+            </h3>
+            <p className="text-sm text-muted-foreground">{opportunity.organization}</p>
+            {sourceName && (
+              <p className="text-xs text-muted-foreground">Source: {sourceName}</p>
+            )}
+          </div>
         </div>
         <VerificationBadge isSample={opportunity.is_sample} verificationLabel={opportunity.verification_label} />
       </div>
@@ -111,9 +118,15 @@ function OpportunityCard({
         <Chip size="sm">{formatCost(opportunity.cost_type, opportunity.cost_amount)}</Chip>
       </div>
 
-      <div className="space-y-0.5 text-xs text-muted-foreground">
-        <p>
+      <div className="space-y-1 text-xs text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-1.5">
           {formatDeadline(opportunity.application_deadline)} · {APPLICATION_STATUS_LABELS[opportunity.application_status]}
+          {closingSoon && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-coral/15 px-2 py-0.5 text-[0.7rem] font-medium text-coral">
+              <Clock aria-hidden="true" className="size-3" />
+              Closing soon
+            </span>
+          )}
         </p>
         <p>{formatCommitment(opportunity.weekly_commitment_hours, opportunity.duration_text)}</p>
         <p>{formatLastVerified(opportunity.last_verified_at)}</p>

@@ -7,9 +7,17 @@
 
 import type { Page } from "@playwright/test";
 
+/**
+ * Milestone 10.9 note: "Add item" now links to the new guided capture flow
+ * (/portfolio/new) by default — the classic inline long-form these 35
+ * scenarios were built against is still fully intact, just one click
+ * further behind "Use the classic form instead" (AddItemPanel). This
+ * helper goes straight to that link so every existing scenario keeps
+ * exercising the exact same classic-form behavior, unchanged.
+ */
 export async function openAddItemPanel(page: Page): Promise<void> {
   await page.goto("/portfolio");
-  await page.getByRole("button", { name: "Add item" }).click();
+  await page.getByRole("button", { name: "Use the classic form instead" }).click();
 }
 
 /** Selected first so the category-specific prompt labels are already live before anything asserts or fills them. */

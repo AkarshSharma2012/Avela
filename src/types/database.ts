@@ -484,6 +484,76 @@ export type PortfolioFileEvidenceRole =
 /** Shared shape with PossessionChallengeStatus (identity.ts) — same four values, different owning table. */
 export type PortfolioPossessionChallengeStatus = "pending" | "confirmed" | "expired" | "revoked";
 
+// Avela Passport — Universal Evidence Lifecycle (Milestone 10.9)
+
+/** How this evidence arrived — see supabase/migrations/20260817000000_passport_capture_and_review.sql. Null on pre-10.9 rows. 'unknown' is always valid. */
+export type PortfolioFileSourceKind =
+  | "public_url"
+  | "private_url"
+  | "git_repository"
+  | "live_website"
+  | "image"
+  | "screenshot"
+  | "process_image"
+  | "pdf"
+  | "plain_text"
+  | "document"
+  | "presentation"
+  | "certificate"
+  | "competition_result"
+  | "official_result_page"
+  | "audio_link"
+  | "video_link"
+  | "audio_upload"
+  | "video_upload"
+  | "design_file"
+  | "prototype_file"
+  | "research_paper"
+  | "research_poster"
+  | "publication"
+  | "school_page"
+  | "organization_page"
+  | "portfolio_page"
+  | "recommendation"
+  | "reviewer_confirmation"
+  | "email_confirmation"
+  | "student_explanation"
+  | "possession_challenge"
+  | "manual_offline"
+  | "unknown";
+
+/** Honest processing lifecycle — 'unsupported_for_automatic_analysis' and 'metadata_only' are first-class states, never hidden. */
+export type PortfolioFileExtractionStatus =
+  | "received"
+  | "stored"
+  | "extraction_pending"
+  | "readable"
+  | "partially_readable"
+  | "unsupported_for_automatic_analysis"
+  | "relevant"
+  | "irrelevant"
+  | "supports_claim"
+  | "independently_confirmed"
+  | "needs_review"
+  | "extraction_failed"
+  | "metadata_only";
+
+export type PortfolioFileVisibility = "private" | "summary_only" | "shared";
+
+/** See supabase/migrations/20260817000000_passport_capture_and_review.sql. */
+export type ConfirmationReviewerRole =
+  | "teacher"
+  | "counselor"
+  | "coach"
+  | "employer"
+  | "mentor"
+  | "organization_leader"
+  | "teammate"
+  | "community_member"
+  | "parent_or_guardian";
+
+export type ConfirmationResponseStatus = "can_confirm" | "can_confirm_participation_only" | "mostly_accurate" | "cannot_verify";
+
 // Anti-Gaming / Anti-Collusion Signals & Rate Limiting (Milestone 10.7)
 
 /** See supabase/migrations/20260811000000_integrity_signals.sql. Reviewer-only — never shown to the subject student (docs/security.md). */
@@ -1474,6 +1544,9 @@ export type Database = {
           label: string | null;
           evidence_role: PortfolioFileEvidenceRole | null;
           content_hash: string | null;
+          source_kind: PortfolioFileSourceKind | null;
+          extraction_status: PortfolioFileExtractionStatus;
+          visibility: PortfolioFileVisibility;
           created_at: string;
           updated_at: string;
         };
@@ -1488,6 +1561,9 @@ export type Database = {
           label?: string | null;
           evidence_role?: PortfolioFileEvidenceRole | null;
           content_hash?: string | null;
+          source_kind?: PortfolioFileSourceKind | null;
+          extraction_status?: PortfolioFileExtractionStatus;
+          visibility?: PortfolioFileVisibility;
           created_at?: string;
           updated_at?: string;
         };
@@ -1502,6 +1578,138 @@ export type Database = {
           label?: string | null;
           evidence_role?: PortfolioFileEvidenceRole | null;
           content_hash?: string | null;
+          source_kind?: PortfolioFileSourceKind | null;
+          extraction_status?: PortfolioFileExtractionStatus;
+          visibility?: PortfolioFileVisibility;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_review_links: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          intro_summary: string | null;
+          token_hash: string;
+          expires_at: string;
+          revoked_at: string | null;
+          last_viewed_at: string | null;
+          view_count: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          intro_summary?: string | null;
+          token_hash: string;
+          expires_at: string;
+          revoked_at?: string | null;
+          last_viewed_at?: string | null;
+          view_count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          title?: string;
+          intro_summary?: string | null;
+          token_hash?: string;
+          expires_at?: string;
+          revoked_at?: string | null;
+          last_viewed_at?: string | null;
+          view_count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_review_link_items: {
+        Row: {
+          id: string;
+          user_id: string;
+          review_link_id: string;
+          portfolio_item_id: string;
+          selected_file_ids: string[];
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          review_link_id: string;
+          portfolio_item_id: string;
+          selected_file_ids?: string[];
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          review_link_id?: string;
+          portfolio_item_id?: string;
+          selected_file_ids?: string[];
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      portfolio_confirmation_requests: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_item_id: string;
+          claim_dimensions: string[];
+          reviewer_role: ConfirmationReviewerRole;
+          reviewer_email: string | null;
+          reviewer_display_name: string | null;
+          student_context_note: string | null;
+          token_hash: string;
+          expires_at: string;
+          revoked_at: string | null;
+          responded_at: string | null;
+          response_status: ConfirmationResponseStatus | null;
+          response_note: string | null;
+          attempt_count: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_item_id: string;
+          claim_dimensions: string[];
+          reviewer_role: ConfirmationReviewerRole;
+          reviewer_email?: string | null;
+          reviewer_display_name?: string | null;
+          student_context_note?: string | null;
+          token_hash: string;
+          expires_at: string;
+          revoked_at?: string | null;
+          responded_at?: string | null;
+          response_status?: ConfirmationResponseStatus | null;
+          response_note?: string | null;
+          attempt_count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_item_id?: string;
+          claim_dimensions?: string[];
+          reviewer_role?: ConfirmationReviewerRole;
+          reviewer_email?: string | null;
+          reviewer_display_name?: string | null;
+          student_context_note?: string | null;
+          token_hash?: string;
+          expires_at?: string;
+          revoked_at?: string | null;
+          responded_at?: string | null;
+          response_status?: ConfirmationResponseStatus | null;
+          response_note?: string | null;
+          attempt_count?: number;
           created_at?: string;
           updated_at?: string;
         };

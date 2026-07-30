@@ -7,8 +7,13 @@
 import type { Database } from "@/types/database";
 
 export type {
+  ConfirmationResponseStatus,
+  ConfirmationReviewerRole,
   EvidencePurpose,
+  PortfolioFileExtractionStatus,
   PortfolioFileMimeType,
+  PortfolioFileSourceKind,
+  PortfolioFileVisibility,
   PortfolioItemType,
   PortfolioItemVisibility,
 } from "@/types/database";
@@ -24,6 +29,12 @@ export type PortfolioEntryNarrative = Database["public"]["Tables"]["portfolio_en
 export type PortfolioTeamDetails = Database["public"]["Tables"]["portfolio_team_details"]["Row"];
 
 export type PortfolioTeamCollaborator = Database["public"]["Tables"]["portfolio_team_collaborators"]["Row"];
+
+export type PortfolioReviewLink = Database["public"]["Tables"]["portfolio_review_links"]["Row"];
+
+export type PortfolioReviewLinkItem = Database["public"]["Tables"]["portfolio_review_link_items"]["Row"];
+
+export type PortfolioConfirmationRequest = Database["public"]["Tables"]["portfolio_confirmation_requests"]["Row"];
 
 /** A portfolio item with its attached files — the shape the item workspace page reads. */
 export type PortfolioItemWithFiles = PortfolioItem & {

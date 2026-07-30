@@ -24,19 +24,20 @@ function MobileNav({ email, logoutSlot }: { email: string; logoutSlot: ReactNode
         <Menu className="size-5" aria-hidden="true" />
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 bg-foreground/30 transition-opacity duration-[var(--duration-base)] data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <Dialog.Popup className="fixed inset-y-0 left-0 flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-border bg-card p-4 shadow-md outline-none transition-transform duration-[var(--duration-page)] ease-[var(--ease-standard)] data-ending-style:-translate-x-full data-starting-style:-translate-x-full">
+        <Dialog.Backdrop className="fixed inset-0 bg-foreground/30 backdrop-blur-[2px] transition-opacity duration-[var(--duration-base)] data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <Dialog.Popup className="fixed inset-y-0 left-0 flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar p-4 shadow-[var(--shadow-glow-lg)] outline-none transition-transform duration-[var(--duration-page)] ease-[var(--ease-standard)] data-ending-style:-translate-x-full data-starting-style:-translate-x-full">
           <Dialog.Description className="sr-only">
             Site navigation menu
           </Dialog.Description>
 
           <div className="flex items-center justify-between px-2 pb-4">
-            <Dialog.Title className="font-heading text-base font-semibold text-foreground">
+            <Dialog.Title className="flex items-center gap-2 font-heading text-base font-semibold text-sidebar-foreground">
+              <span className="gradient-signal size-5 shrink-0 rounded-md" />
               Avela
             </Dialog.Title>
             <Dialog.Close
               aria-label="Close navigation menu"
-              className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+              className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-sidebar-ring/50"
             >
               <X className="size-4" aria-hidden="true" />
             </Dialog.Close>
@@ -44,8 +45,8 @@ function MobileNav({ email, logoutSlot }: { email: string; logoutSlot: ReactNode
 
           <NavLinks onNavigate={() => setOpen(false)} />
 
-          <div className="mt-auto border-t border-border pt-4">
-            <p className="truncate text-xs text-muted-foreground" title={email}>
+          <div className="mt-auto border-t border-sidebar-border pt-4">
+            <p className="truncate text-xs text-sidebar-foreground/60" title={email}>
               {email}
             </p>
             <div className="mt-3">{logoutSlot}</div>

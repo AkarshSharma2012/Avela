@@ -268,6 +268,37 @@ human rather than let them become a "verified" fact by default.
 
 ---
 
+# Security — Fresh Discovery ("Find more opportunities") additions
+
+## `SUPABASE_SERVICE_ROLE_KEY` is now read at runtime, not just by the import script
+
+Milestone 5's "no new service-role key or network call was introduced"
+claim above no longer holds for the app as a whole — it was true only for
+that milestone's own (file/static) adapters. This milestone's
+`src/lib/opportunities/discovery-repository.ts` reads
+`SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_SUPABASE_URL` from a Server
+Action (`findMoreAction`, `src/lib/opportunities/discovery-actions.ts`),
+because `opportunities`/`opportunity_sources` still have no client-facing
+insert policy (unchanged from Milestone 4/5) and a fresh discovery run
+needs to write newly-ingested opportunities the same way
+`scripts/ingest-opportunities.ts` does. **Every environment that runs this
+app — including production — must have `SUPABASE_SERVICE_ROLE_KEY` set**,
+not only a developer machine running the import script. A missing key
+here was the root cause of a real "Find more opportunities" outage: see
+`docs/decision-log.md`.
+
+The identity/authorization boundary is unchanged: `findMoreAction` still
+resolves the acting student from the session only, still never accepts a
+client-supplied user id, and the service-role client is only ever used to
+write to the shared, RLS-locked-down catalog tables — never to read or
+write anything scoped to a specific user. `getDiscoveryRepository()` is
+also lazy (constructed only if a fresh-discovery run is actually reached,
+never for a request the existing catalog already satisfies), so a broken
+or missing key degrades that one run to an honest "couldn't search new
+sources" outcome rather than failing every "Find more" click outright.
+
+---
+
 # Security — Milestone 10 additions (Student Portfolio & Evidence Vault)
 
 ## The `student-portfolio` Storage bucket is private, with no public URL ever generated

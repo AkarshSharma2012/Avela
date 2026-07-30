@@ -5,11 +5,14 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Avela design tokens — "Modern Academic Editorial".
+ * Avela design tokens — "Signal" (see docs/design-system.md for the full
+ * rationale behind the Modern-Academic-Editorial -> Signal rewrite).
  *
  * Semantic names below map to the shadcn/Tailwind theme so the rest of the
  * app can keep using ordinary utilities (bg-background, text-foreground,
- * bg-primary, etc). See docs/design-system.md for the full rationale.
+ * bg-primary, etc). Token *names* are unchanged from the previous system —
+ * only their values (and a handful of new tokens) changed — so every
+ * existing component re-themes automatically.
  */
 @theme inline {
   --color-background: var(--background);
@@ -35,6 +38,8 @@
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -62,99 +67,137 @@
   --color-gold: var(--gold);
   --color-gold-foreground: var(--gold-foreground);
   --color-insight: var(--insight);
+  --color-signal: var(--signal);
+  --color-signal-foreground: var(--signal-foreground);
+  --color-coral: var(--coral);
+  --color-coral-foreground: var(--coral-foreground);
+  --shadow-glow: var(--shadow-glow);
+  --shadow-glow-lg: var(--shadow-glow-lg);
 }
 
 :root {
-  /* Page background: warm white, not stark white */
-  --background: oklch(0.985 0.004 80);
-  /* Primary text: dark ink, not pure black */
-  --foreground: oklch(0.22 0.015 260);
+  /* Page background: cool, faintly indigo-tinted near-white — never beige */
+  --background: oklch(0.975 0.008 280);
+  /* Primary text: deep ink with a blue-violet undertone, not neutral gray */
+  --foreground: oklch(0.2 0.03 275);
   /* Secondary text: supporting copy, one step lighter than ink */
-  --text-secondary: oklch(0.4 0.015 260);
-  /* Primary surface: panels, forms, the auth card */
-  --card: oklch(1 0 0);
+  --text-secondary: oklch(0.42 0.025 275);
+  /* Primary surface: panels, forms, cards — a hair cooler than pure white so it still reads as part of the same family as the tinted page background */
+  --card: oklch(0.995 0.004 280);
   --card-foreground: var(--foreground);
-  --popover: oklch(1 0 0);
+  --popover: oklch(0.995 0.004 280);
   --popover-foreground: var(--foreground);
-  /* Primary blue: confident, restrained academic blue */
-  --primary: oklch(0.4 0.115 258);
-  --primary-hover: oklch(0.33 0.11 258);
-  --primary-foreground: oklch(0.98 0.006 80);
-  /* Subtle surface: warm-gray section backgrounds */
-  --secondary: oklch(0.955 0.007 75);
+  /* Primary: electric indigo — the one primary interactive color. See docs/design-system.md's "Signal" rationale. */
+  --primary: oklch(0.44 0.19 275);
+  --primary-hover: oklch(0.37 0.19 275);
+  --primary-foreground: oklch(0.98 0.012 280);
+  /* Subtle surface: soft indigo-tinted wash, replacing the old warm-gray */
+  --secondary: oklch(0.955 0.016 280);
   --secondary-foreground: var(--foreground);
-  --muted: oklch(0.955 0.007 75);
-  --muted-foreground: oklch(0.52 0.012 260);
-  --accent: oklch(0.94 0.009 75);
+  --muted: oklch(0.955 0.016 280);
+  --muted-foreground: oklch(0.5 0.02 275);
+  --accent: oklch(0.93 0.024 280);
   --accent-foreground: var(--foreground);
   --destructive: oklch(0.55 0.19 25);
-  --success: oklch(0.52 0.12 152);
+  /* Success / "verified" / strong-fit: fresh lime-leaning green, used sparingly */
+  --success: oklch(0.52 0.15 145);
+  --warning: oklch(0.6 0.17 68);
+  --warning-foreground: oklch(0.26 0.06 68);
   /* Secondary accent: warm gold — milestones, completion marks, sparks. Used
-     sparingly against the academic blue, never as the primary interactive
-     color. See docs/design-system.md. */
+     sparingly against indigo, never as the primary interactive color. */
   --gold: oklch(0.74 0.135 82);
   --gold-foreground: oklch(0.28 0.05 82);
-  /* Personalization accent: muted plum-purple — interests and "why this fits
-     you" explanations, never a primary interactive color. See
-     docs/design-system.md. */
-  --insight: oklch(0.5 0.135 300);
-  --border: oklch(0.9 0.006 75);
-  --input: oklch(0.9 0.006 75);
-  --ring: oklch(0.5 0.1 258);
+  /* Personalization accent: plum-magenta — interests and "why this fits you"
+     explanations. Kept a clear ~50deg hue away from --primary's indigo so
+     the two never read as the same color at a glance. */
+  --insight: oklch(0.5 0.16 325);
+  /* Signal: bright cyan — the discovery/"fresh match" accent behind the
+     Discovery Pulse motif (see docs/design-system.md). Never a primary
+     interactive color; always secondary to indigo. */
+  --signal: oklch(0.72 0.13 205);
+  --signal-foreground: oklch(0.2 0.03 205);
+  /* Coral: warm urgency accent — deadlines closing soon. Distinct from
+     --destructive (real errors) even though both are warm; coral is
+     informational urgency, destructive is "something is wrong." */
+  --coral: oklch(0.52 0.19 35);
+  --coral-foreground: oklch(0.98 0.012 35);
+  --border: oklch(0.9 0.014 280);
+  --input: oklch(0.9 0.014 280);
+  --ring: oklch(0.55 0.19 275);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.4rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.55rem;
+  /*
+   * The nav rail is a deliberate brand anchor: always deep ink-indigo,
+   * identical in light and dark mode (see the .dark block below — these
+   * six values are duplicated verbatim, not re-derived), the same way a
+   * lot of premium dev tools keep one dark rail regardless of the content
+   * area's theme. This is what makes the sidebar itself, not just a
+   * "Modern Academic Editorial" panel — see docs/design-system.md.
+   */
+  --sidebar: oklch(0.16 0.045 275);
+  --sidebar-foreground: oklch(0.92 0.02 280);
+  --sidebar-primary: oklch(0.72 0.15 275);
+  --sidebar-primary-foreground: oklch(0.16 0.03 275);
+  --sidebar-accent: oklch(0.26 0.07 275);
+  --sidebar-accent-foreground: oklch(0.96 0.02 280);
+  --sidebar-border: oklch(1 0 0.03 275 / 12%);
+  --sidebar-ring: oklch(0.72 0.15 275);
+  --shadow-glow: 0 4px 20px -2px color-mix(in oklch, var(--primary), transparent 78%);
+  --shadow-glow-lg: 0 12px 40px -8px color-mix(in oklch, var(--primary), transparent 65%);
 }
 
 .dark {
-  --background: oklch(0.17 0.012 260);
-  --foreground: oklch(0.96 0.006 80);
-  --text-secondary: oklch(0.8 0.01 260);
-  --card: oklch(0.215 0.014 260);
+  /* Deep ink-navy foundation, not neutral gray — the "ink" the brief asks for */
+  --background: oklch(0.16 0.035 275);
+  --foreground: oklch(0.96 0.01 280);
+  --text-secondary: oklch(0.8 0.02 280);
+  --card: oklch(0.21 0.04 275);
   --card-foreground: var(--foreground);
-  --popover: oklch(0.215 0.014 260);
+  --popover: oklch(0.21 0.04 275);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.74 0.095 255);
-  --primary-hover: oklch(0.8 0.09 255);
-  --primary-foreground: oklch(0.17 0.02 260);
-  --secondary: oklch(0.26 0.014 260);
+  --primary: oklch(0.74 0.15 275);
+  --primary-hover: oklch(0.8 0.14 275);
+  --primary-foreground: oklch(0.16 0.03 275);
+  --secondary: oklch(0.27 0.035 275);
   --secondary-foreground: var(--foreground);
-  --muted: oklch(0.26 0.014 260);
-  --muted-foreground: oklch(0.66 0.012 260);
-  --accent: oklch(0.29 0.014 260);
+  --muted: oklch(0.27 0.035 275);
+  --muted-foreground: oklch(0.68 0.02 280);
+  --accent: oklch(0.3 0.04 275);
   --accent-foreground: var(--foreground);
   --destructive: oklch(0.68 0.18 25);
-  --success: oklch(0.62 0.12 152);
+  --success: oklch(0.68 0.16 145);
+  --warning: oklch(0.78 0.14 70);
+  --warning-foreground: oklch(0.24 0.05 70);
   --gold: oklch(0.78 0.13 82);
   --gold-foreground: oklch(0.22 0.04 82);
-  --insight: oklch(0.78 0.1 300);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.74 0.095 255);
+  --insight: oklch(0.76 0.14 325);
+  --signal: oklch(0.78 0.14 205);
+  --signal-foreground: oklch(0.18 0.03 205);
+  --coral: oklch(0.72 0.17 35);
+  --coral-foreground: oklch(0.18 0.03 35);
+  --border: oklch(1 0 0.03 275 / 14%);
+  --input: oklch(1 0 0.03 275 / 18%);
+  --ring: oklch(0.74 0.15 275);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Identical to :root — the nav rail is a fixed brand anchor, see the :root block's comment. */
+  --sidebar: oklch(0.16 0.045 275);
+  --sidebar-foreground: oklch(0.92 0.02 280);
+  --sidebar-primary: oklch(0.72 0.15 275);
+  --sidebar-primary-foreground: oklch(0.16 0.03 275);
+  --sidebar-accent: oklch(0.26 0.07 275);
+  --sidebar-accent-foreground: oklch(0.96 0.02 280);
+  --sidebar-border: oklch(1 0 0.03 275 / 12%);
+  --sidebar-ring: oklch(0.72 0.15 275);
+  --shadow-glow: 0 4px 24px -2px color-mix(in oklch, var(--primary), transparent 65%);
+  --shadow-glow-lg: 0 16px 48px -8px color-mix(in oklch, var(--primary), transparent 50%);
 }
 
 @layer base {
@@ -246,6 +289,110 @@
   }
 }
 
+/*
+ * Discovery Pulse — Avela's signature motif (see docs/design-system.md).
+ * Concentric rings expanding outward from a center point, echoing a
+ * sonar/signal sweep: Avela actively scanning trusted sources for a
+ * match. Used sparingly — the discovery loading state, a slow ambient
+ * wash behind the dashboard's featured recommendation, and as the visual
+ * basis for match-strength rings — never as generic page decoration.
+ */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  80%,
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-ring-slow {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.6;
+  }
+}
+
+@keyframes card-lift-glow {
+  from {
+    box-shadow: var(--shadow-sm);
+  }
+  to {
+    box-shadow: var(--shadow-glow);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@keyframes gradient-pan {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+.animate-pulse-ring-slow {
+  animation: pulse-ring-slow 3.4s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in oklch, var(--foreground), transparent 92%) 50%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+.animate-gradient-pan {
+  background-size: 200% 200%;
+  animation: gradient-pan 8s ease-in-out infinite;
+}
+
+.hover-lift {
+  transition:
+    transform var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard),
+    border-color var(--duration-base) var(--ease-standard);
+}
+.hover-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-glow);
+}
+
+.gradient-signal {
+  background-image: linear-gradient(
+    135deg,
+    var(--primary) 0%,
+    color-mix(in oklch, var(--primary), var(--signal) 55%) 50%,
+    var(--signal) 100%
+  );
+}
+
 .animate-fade-up {
   animation: fade-up var(--duration-page) var(--ease-standard) both;
 }
@@ -265,6 +412,43 @@
 .animate-check-draw {
   stroke-dasharray: 24;
   animation: check-draw var(--duration-celebrate) var(--ease-standard) forwards;
+}
+
+/*
+ * Card-stack flow motion (Milestone 10.9 — Avela Passport capture flow).
+ * Directional horizontal slide + slight scale/fade, driven purely by a
+ * `key` change on the active card (see card-stack.tsx) — no animation
+ * library. Automatically neutralized by the prefers-reduced-motion block
+ * below, same as every other animation on this page.
+ */
+@keyframes card-slide-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(28px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes card-slide-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-28px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.animate-card-slide-in-forward {
+  animation: card-slide-in-forward var(--duration-page) var(--ease-standard) both;
+}
+
+.animate-card-slide-in-back {
+  animation: card-slide-in-back var(--duration-page) var(--ease-standard) both;
 }
 
 .stagger-children > * {

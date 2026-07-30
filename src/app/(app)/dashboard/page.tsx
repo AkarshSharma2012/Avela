@@ -9,6 +9,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 
+import { TodayHero } from "@/components/dashboard/today-hero";
 import { DiscoverMore } from "@/components/opportunities/discover-more";
 import { FeaturedMatchCard } from "@/components/opportunities/featured-match-card";
 import { FindMoreButton } from "@/components/opportunities/find-more-button";
@@ -272,9 +273,15 @@ export default async function DashboardPage({
     getFeedbackStateForOpportunities(supabase, profile.id, chosenOpportunityIds),
   ]);
 
-  const insights = buildInsights(
-    chosenForYou.featured ? [chosenForYou.featured, ...chosenForYou.additional] : chosenForYou.additional
-  );
+  const allChosenEntries = chosenForYou.featured
+    ? [chosenForYou.featured, ...chosenForYou.additional]
+    : chosenForYou.additional;
+  const insights = buildInsights(allChosenEntries);
+  const strongMatchCount = allChosenEntries.filter((entry) => entry.matchResult.tier === "strong_fit").length;
+  const profileStrengthPercent =
+    portfolioSummary.profileStrength.maxScore > 0
+      ? Math.round((portfolioSummary.profileStrength.score / portfolioSummary.profileStrength.maxScore) * 100)
+      : 0;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-10 sm:py-12">
@@ -289,6 +296,18 @@ export default async function DashboardPage({
           Your personal opportunity advisor prepared today&apos;s matches from your profile below.
         </p>
       </div>
+
+      <TodayHero
+        firstName={firstName}
+        overdueTaskCount={applicationSummary.overdueTaskCount}
+        nearestDeadline={applicationSummary.nearestDeadline}
+        overdueReminderCount={reminderSummary.overdueCount}
+        nextReminder={reminderSummary.next ? { title: reminderSummary.next.title, remindAt: reminderSummary.next.remind_at } : null}
+        nextReminderHref={nextReminderHref}
+        featured={chosenForYou.featured}
+        strongMatchCount={strongMatchCount}
+        profileStrengthPercent={profileStrengthPercent}
+      />
 
       <section aria-labelledby="foundation-heading" className="animate-fade-up mt-8">
         <h2
@@ -455,12 +474,15 @@ export default async function DashboardPage({
           {poolError ? (
             <EmptyState icon={AlertTriangle} title="Couldn't load your matches." description={poolError} />
           ) : chosenForYou.status === "empty" ? (
-            <EmptyState
-              icon={Compass}
-              title="We haven't verified any opportunities matching your profile yet."
-              description="Check back soon as more are verified, or browse everything we have so far."
-              action={{ label: "Browse Opportunities", href: "/opportunities" }}
-            />
+            <>
+              <EmptyState
+                icon={Compass}
+                title="We haven't verified any opportunities matching your profile yet."
+                description="Check back soon as more are verified, browse everything we have so far, or search fresh sources now."
+                action={{ label: "Browse Opportunities", href: "/opportunities" }}
+              />
+              <DiscoverMore />
+            </>
           ) : (
             <>
               {chosenForYou.featured && (

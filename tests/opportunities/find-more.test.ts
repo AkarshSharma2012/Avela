@@ -118,7 +118,7 @@ function makeDeps(overrides: Partial<FindMoreDependencies> = {}): FindMoreDepend
     insertRecommendations: async (rows) => {
       inserted.push(...rows);
     },
-    discoveryRepository: {} as DiscoveryRepository,
+    getDiscoveryRepository: () => ({}) as DiscoveryRepository,
     ...overrides,
   };
 }
@@ -227,5 +227,107 @@ describe("findMoreOpportunities", () => {
     );
 
     expect(inserted.some((r) => r.opportunityId === "a")).toBe(false);
+  });
+
+  it("reports partial-source failure as ok, surfacing which sources failed alongside the ones that succeeded", async () => {
+    const runFreshDiscoveryImpl = vi.fn(async () => ({
+      candidates: [makeCandidate("fresh-1")],
+      sourceOutcomes: [
+        { sourceKey: "nist-ship" as const, sourceName: "NIST", status: "ingested" as const, itemsFound: 1, newOpportunityIds: ["fresh-1"], errorSummary: null },
+        { sourceKey: "nih-sip" as const, sourceName: "NIH", status: "failed" as const, itemsFound: 0, newOpportunityIds: [], errorSummary: "timed out" },
+      ],
+      sourcesAttempted: ["nist-ship" as const, "nih-sip" as const],
+      allSourcesFailed: false,
+      anySourceFailed: true,
+    }));
+
+    const result = await findMoreOpportunities(
+      makeDeps({ listCatalogPool: async () => [], runFreshDiscoveryImpl })
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.recommendations.map((c) => c.opportunity.id)).toContain("fresh-1");
+    expect(result.sourceFailures).toEqual([{ sourceName: "NIH", errorSummary: "timed out" }]);
+    expect(result.sourcesSearched).toEqual(["NIST"]);
+  });
+
+  it("reports no_strong_matches (not source_failure_total) when discovery genuinely finds nothing, without any source failing", async () => {
+    const runFreshDiscoveryImpl = vi.fn(async () => ({
+      candidates: [],
+      sourceOutcomes: [{ sourceKey: "nist-ship" as const, sourceName: "NIST", status: "ingested" as const, itemsFound: 0, newOpportunityIds: [], errorSummary: null }],
+      sourcesAttempted: ["nist-ship" as const],
+      allSourcesFailed: false,
+      anySourceFailed: false,
+    }));
+
+    const result = await findMoreOpportunities(
+      makeDeps({ listCatalogPool: async () => [], runFreshDiscoveryImpl })
+    );
+
+    expect(result.status).toBe("no_strong_matches");
+    expect(result.recommendations).toHaveLength(0);
+  });
+
+  it("reports profile_incomplete when no source can be selected because the profile has no interests or goals, and there's no catalog fallback", async () => {
+    const result = await findMoreOpportunities(
+      makeDeps({
+        profile: makeProfile({ interests: [], goals: [] }),
+        listCatalogPool: async () => [],
+      })
+    );
+
+    expect(result.status).toBe("profile_incomplete");
+    expect(result.recommendations).toHaveLength(0);
+  });
+
+  it("does not report profile_incomplete when a catalog fallback exists, even with no interests/goals", async () => {
+    const pool = [makeOpportunity("a", { interest_tags: [] })];
+
+    const result = await findMoreOpportunities(
+      makeDeps({
+        profile: makeProfile({ interests: [], goals: [] }),
+        listCatalogPool: async () => pool,
+      })
+    );
+
+    expect(result.status).not.toBe("profile_incomplete");
+  });
+
+  it("never calls getDiscoveryRepository when the catalog alone is enough (Step A never needs a service-role client)", async () => {
+    const getDiscoveryRepository = vi.fn(() => ({}) as DiscoveryRepository);
+    const pool = [makeOpportunity("a"), makeOpportunity("b"), makeOpportunity("c")];
+
+    await findMoreOpportunities(makeDeps({ listCatalogPool: async () => pool, getDiscoveryRepository }));
+
+    expect(getDiscoveryRepository).not.toHaveBeenCalled();
+  });
+
+  it("degrades to the catalog fallback (not a hard failure) when getDiscoveryRepository itself throws", async () => {
+    const pool = [makeOpportunity("a")]; // one catalog match — not enough to skip discovery, but enough to fall back to
+    const getDiscoveryRepository = vi.fn(() => {
+      throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY — required for fresh discovery ingestion.");
+    });
+
+    const result = await findMoreOpportunities(
+      makeDeps({ listCatalogPool: async () => pool, getDiscoveryRepository })
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.recommendations.map((c) => c.opportunity.id)).toContain("a");
+    expect(result.usedDiscovery).toBe(false);
+  });
+
+  it("reports source_failure_total (not a hard failure) when getDiscoveryRepository throws and there is no catalog fallback either", async () => {
+    const getDiscoveryRepository = vi.fn(() => {
+      throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY — required for fresh discovery ingestion.");
+    });
+
+    const result = await findMoreOpportunities(
+      makeDeps({ listCatalogPool: async () => [], getDiscoveryRepository })
+    );
+
+    expect(result.status).toBe("source_failure_total");
+    expect(result.recommendations).toHaveLength(0);
+    expect(result.message).toMatch(/try again/i);
   });
 });

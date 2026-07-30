@@ -15,10 +15,11 @@ import { NavLinks } from "@/components/layout/nav-links";
 function AppShell({ email, children }: { email: string; children: ReactNode }) {
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">
-      <aside className="hidden border-r border-border bg-secondary lg:sticky lg:top-0 lg:flex lg:h-svh lg:w-64 lg:shrink-0 lg:flex-col">
+      <aside className="hidden border-r border-sidebar-border bg-sidebar lg:sticky lg:top-0 lg:flex lg:h-svh lg:w-64 lg:shrink-0 lg:flex-col">
         <div className="flex h-16 shrink-0 items-center px-6">
-          <Link href="/dashboard" className="font-heading text-lg font-semibold text-foreground">
-            Avela
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <span className="gradient-signal size-6 shrink-0 rounded-md shadow-[0_0_12px_color-mix(in_oklch,var(--primary),transparent_45%)]" />
+            <span className="font-heading text-lg font-semibold text-sidebar-foreground">Avela</span>
           </Link>
         </div>
 
@@ -26,22 +27,28 @@ function AppShell({ email, children }: { email: string; children: ReactNode }) {
           <NavLinks />
         </div>
 
-        <div className="border-t border-border px-4 py-4">
-          <p className="truncate text-xs text-muted-foreground" title={email}>
+        <div className="border-t border-sidebar-border px-4 py-4">
+          <p className="truncate text-xs text-sidebar-foreground/60" title={email}>
             {email}
           </p>
           <div className="mt-3">
-            <LogoutButton />
+            <LogoutButton className="border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
           </div>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-4 lg:hidden">
-          <Link href="/dashboard" className="font-heading text-base font-semibold text-foreground">
+          <Link href="/dashboard" className="flex items-center gap-2 font-heading text-base font-semibold text-foreground">
+            <span className="gradient-signal size-5 shrink-0 rounded-md" />
             Avela
           </Link>
-          <MobileNav email={email} logoutSlot={<LogoutButton />} />
+          <MobileNav
+            email={email}
+            logoutSlot={
+              <LogoutButton className="border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
+            }
+          />
         </header>
 
         <main className="flex-1 overflow-x-hidden">{children}</main>

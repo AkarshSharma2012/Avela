@@ -8,6 +8,7 @@ import {
   formatGradeRange,
   formatLastVerified,
   formatLocation,
+  isClosingSoon,
   isDeadlinePassed,
 } from "@/lib/opportunities/format";
 
@@ -68,6 +69,29 @@ describe("isDeadlinePassed / formatDeadline", () => {
   it("reports a past deadline as passed", () => {
     expect(isDeadlinePassed("2026-06-01T23:59:00Z", NOW)).toBe(true);
     expect(formatDeadline("2026-06-01T23:59:00Z", NOW)).toBe("Deadline passed");
+  });
+});
+
+describe("isClosingSoon", () => {
+  it("is never closing soon with no deadline (rolling admissions)", () => {
+    expect(isClosingSoon(null, NOW)).toBe(false);
+  });
+
+  it("is closing soon within the default 14-day threshold", () => {
+    expect(isClosingSoon("2026-08-05T00:00:00Z", NOW)).toBe(true);
+  });
+
+  it("is not closing soon well beyond the threshold", () => {
+    expect(isClosingSoon("2027-01-15T00:00:00Z", NOW)).toBe(false);
+  });
+
+  it("is not closing soon once the deadline has already passed", () => {
+    expect(isClosingSoon("2026-06-01T00:00:00Z", NOW)).toBe(false);
+  });
+
+  it("respects a custom threshold", () => {
+    expect(isClosingSoon("2026-08-05T00:00:00Z", NOW, 3)).toBe(false);
+    expect(isClosingSoon("2026-07-27T00:00:00Z", NOW, 3)).toBe(true);
   });
 });
 

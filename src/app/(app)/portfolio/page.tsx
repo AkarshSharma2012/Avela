@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { FolderOpen } from "lucide-react";
 
 import { AddItemPanel } from "@/components/portfolio/add-item-panel";
@@ -95,7 +96,15 @@ export default async function PortfolioPage({
     <div className="mx-auto flex w-full max-w-5xl flex-col px-6 py-10 sm:py-12">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader />
-        <AddItemPanel />
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/portfolio/review-links"
+            className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+          >
+            Share for review
+          </Link>
+          <AddItemPanel />
+        </div>
       </div>
 
       <section aria-labelledby="strength-heading" className="animate-fade-up mt-8">

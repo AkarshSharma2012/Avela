@@ -761,3 +761,52 @@ application requires evidence unless it is explicitly known"). Only an
 explicit `true` produces a suggestion, and every suggestion's own label is
 prefixed `"Suggested:"` so the UI itself can't present it as a hard
 requirement even by accident.
+
+# Decision Log — "Find more opportunities" reliability fix
+
+## Root cause: an eagerly-constructed service-role client made the whole action depend on `SUPABASE_SERVICE_ROLE_KEY`
+
+Reproduced against a local Supabase instance (`supabase start` +
+`e2e-seed-personas`, never production): with a real profile and real
+catalog matches, clicking "Find more opportunities" produced exactly
+"Discovery isn't available right now — please try again later." whenever
+`SUPABASE_SERVICE_ROLE_KEY` was unset — regardless of whether the
+existing catalog already had enough good matches to answer the request
+without ever touching a network or the service-role client at all.
+
+Two compounding causes:
+
+1. `findMoreAction` (`discovery-actions.ts`) called
+   `createDiscoveryServiceRoleClient()` unconditionally, before even
+   checking whether fresh discovery would be needed. Any failure there
+   was a hard, whole-action failure — no catalog fallback, no partial
+   result, just the generic message above.
+2. `.env.local`'s own comment and `docs/security.md`'s Milestone 5/6
+   sections explicitly (and, at the time, accurately) documented
+   `SUPABASE_SERVICE_ROLE_KEY` as script-only, safe to leave unset for the
+   running app. The Fresh Discovery milestone made that false — it's now
+   also read from a live Server Action — but neither the comment nor the
+   docs were updated, so a developer or deploy following that guidance
+   would leave the key unset in exactly the environment(s) that now
+   silently need it, including production.
+
+## Fix: lazy repository construction, folded into the existing failure-classification path
+
+`FindMoreDependencies.discoveryRepository` (a plain, eagerly-built value)
+became `getDiscoveryRepository()` (a lazy factory), called only at the
+point `find-more.ts` actually reaches Step B (fresh discovery). A
+construction failure there is now handled exactly like a real
+all-sources-failed run: the student still gets whatever catalog fallback
+exists, `usedDiscovery` and `discoveryRunId` stay honest, and only an
+empty result gets the "can't search new sources right now" message. This
+also means a request the catalog alone can satisfy — the common case for
+most students most of the time — no longer has any dependency on the
+service-role key at all.
+
+Also added a distinct `profile_incomplete` status: previously a
+profile with no interests/goals silently produced the same
+"no additional strong matches" message as a real search coming up empty,
+which told a student nothing about *why* and gave them no actionable next
+step. `docs/security.md` gained a new section documenting the actual
+current service-role usage (superseding, not rewriting, the
+now-historical Milestone 5/6 claims).

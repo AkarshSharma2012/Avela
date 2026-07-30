@@ -81,18 +81,21 @@ export default async function OpportunitiesPage({
             description={error}
           />
         ) : opportunities.length === 0 ? (
-          <EmptyState
-            icon={Compass}
-            title={
-              filtersActive ? "No opportunities match your filters." : "No opportunities yet."
-            }
-            description={
-              filtersActive
-                ? "Try widening your search or clearing filters."
-                : "Check back soon — new opportunities are added regularly."
-            }
-            action={filtersActive ? { label: "Clear filters", href: "/opportunities" } : undefined}
-          />
+          <>
+            <EmptyState
+              icon={Compass}
+              title={
+                filtersActive ? "No opportunities match your filters." : "No opportunities yet."
+              }
+              description={
+                filtersActive
+                  ? "Try widening your search or clearing filters."
+                  : "Check back soon, or search fresh sources now."
+              }
+              action={filtersActive ? { label: "Clear filters", href: "/opportunities" } : undefined}
+            />
+            {!filtersActive && <DiscoverMore />}
+          </>
         ) : (
           <>
             <p role="status" className="mb-4 text-sm text-muted-foreground">

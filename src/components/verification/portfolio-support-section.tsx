@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { UserCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { AdvancedDetails } from "@/components/verification/advanced-details";
@@ -19,6 +20,8 @@ import type { SupportMethod, WizardStep } from "@/components/verification/wizard
 import { useWizardState } from "@/components/verification/wizard/use-wizard-state";
 import { VerifierStep } from "@/components/verification/wizard/verifier-step";
 import { OsintCheckPanel } from "@/components/portfolio/osint/osint-check-panel";
+import { AskForConfirmationPanel } from "@/components/confirmations/ask-for-confirmation-panel";
+import { ALL_CLAIM_DIMENSIONS } from "@/lib/claims/constants";
 import type { ClaimSupportSummary } from "@/lib/claims/rollup";
 import { resolveOfferedMethodsForCategory } from "@/lib/identity/provider-availability";
 import type { PersonalProjectRequiredInput } from "@/lib/portfolio/personal-project";
@@ -203,6 +206,16 @@ function PortfolioSupportSection({
         <ClaimDimensionsPanel summary={claimSupportSummary} />
         <VerificationPanel itemId={item.id} itemTitle={item.title} verification={verification} requestStatus={requestStatus} files={files} />
         {osintEligible && <OsintCheckPanel itemId={item.id} itemTitle={item.title} check={osintCheck} />}
+        <div className="rounded-lg border border-border bg-card px-5 py-4">
+          <div className="flex items-center gap-2">
+            <UserCheck aria-hidden="true" className="size-4 text-primary" />
+            <p className="font-heading text-base text-foreground">Ask someone to confirm a specific detail</p>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Under 20 seconds for them — no account needed, and they only see what you ask about.</p>
+          <div className="mt-4">
+            <AskForConfirmationPanel itemId={item.id} availableDimensions={[...ALL_CLAIM_DIMENSIONS]} />
+          </div>
+        </div>
       </AdvancedDetails>
     </div>
   );

@@ -23,6 +23,13 @@ export function isDeadlinePassed(deadline: string | null, now: Date = new Date()
   return new Date(deadline).getTime() < now.getTime();
 }
 
+/** A rolling/null deadline is never "closing soon" — there's no date to be close to. Purely a display concern; never used by matching/ranking. */
+export function isClosingSoon(deadline: string | null, now: Date = new Date(), thresholdDays = 14): boolean {
+  if (deadline === null) return false;
+  const daysUntil = (new Date(deadline).getTime() - now.getTime()) / 86_400_000;
+  return daysUntil >= 0 && daysUntil <= thresholdDays;
+}
+
 export function formatDeadline(deadline: string | null, now: Date = new Date()): string {
   if (deadline === null) return "Rolling admissions";
   if (isDeadlinePassed(deadline, now)) return "Deadline passed";

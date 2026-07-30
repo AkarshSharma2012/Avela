@@ -170,17 +170,9 @@ export async function findMoreAction(): Promise<FindMoreActionResult> {
     ...(persisted ?? []).map((r) => r.opportunity_id),
   ]);
 
-  let serviceClient;
-  try {
-    serviceClient = createDiscoveryServiceRoleClient();
-  } catch {
-    return { ok: false, message: "Discovery isn't available right now — please try again later." };
-  }
-
   let outcome;
   try {
     const batchNumber = await getNextBatchNumber(authClient, profile.id);
-    const discoveryRepository = createSupabaseDiscoveryRepository(authClient, serviceClient);
 
     outcome = await findMoreOpportunities({
       userId: profile.id,
@@ -188,7 +180,11 @@ export async function findMoreAction(): Promise<FindMoreActionResult> {
       feedbackProfile,
       alreadyShownOpportunityIds,
       batchNumber,
-      discoveryRepository,
+      // Lazy — only actually called if a fresh-discovery run is reached
+      // (find-more.ts's Step B). Never eagerly constructed, so a request
+      // the existing catalog alone can satisfy never depends on
+      // SUPABASE_SERVICE_ROLE_KEY being configured at all.
+      getDiscoveryRepository: () => createSupabaseDiscoveryRepository(authClient, createDiscoveryServiceRoleClient()),
       listCatalogPool: async () => pool,
       ...buildDependencies(authClient, profile.id),
     });
@@ -204,6 +200,13 @@ export async function findMoreAction(): Promise<FindMoreActionResult> {
     // Never surface a raw internal/DB error message to the client.
     return { ok: false, message: "Something went wrong while searching for more opportunities — please try again." };
   }
+
+  // Aggregate counts and status only — never a user id, email, or profile
+  // detail — so this is safe to leave on in production for debugging why a
+  // student's "Find more" click behaved the way it did.
+  console.log(
+    `[find-more] status=${outcome.status} usedDiscovery=${outcome.usedDiscovery} recommendations=${outcome.recommendations.length} sourcesSearched=${outcome.sourcesSearched.length} sourceFailures=${outcome.sourceFailures.length}`
+  );
 
   const sourceIds = outcome.recommendations
     .map((c) => c.opportunity.source_id)

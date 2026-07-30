@@ -1,5 +1,6 @@
 import { CircleCheck, CircleDot, CircleMinus } from "lucide-react";
 
+import { MatchSignal } from "@/components/ui/discovery-pulse";
 import type { MatchResult, MatchTier } from "@/lib/opportunities/matching";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,7 @@ function MatchBadge({
       >
         <Icon aria-hidden="true" className="size-3.5" />
         {label}
+        <MatchSignal tier={result.tier} />
       </span>
       {showReasons && result.reasons.length > 0 && (
         <ul className="space-y-0.5 text-xs text-text-secondary">

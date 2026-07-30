@@ -28,7 +28,8 @@ export type FindMoreStatus =
   | "no_strong_matches"
   | "source_failure_total"
   | "rate_limited"
-  | "concurrent_run_blocked";
+  | "concurrent_run_blocked"
+  | "profile_incomplete";
 
 export type FindMoreOutcome = {
   recommendations: DiscoveryCandidate[];
@@ -82,7 +83,19 @@ export type FindMoreDependencies = {
     result: { status: "completed" | "failed"; resultsFound: number; errorSummary: string | null }
   ): Promise<void>;
   insertRecommendations(rows: RecommendationInsert[]): Promise<void>;
-  discoveryRepository: DiscoveryRepository;
+  /**
+   * Lazy, not a plain field: constructing the real repository needs a
+   * service-role client (see discovery-repository.ts), which requires
+   * `SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_SUPABASE_URL` to be
+   * configured. Calling this only when Step B is actually reached means a
+   * request the catalog alone can satisfy (or one that never selects a
+   * source — see the `profile_incomplete` branch) never depends on that
+   * env var at all, and a broken/missing one degrades to the same honest
+   * "couldn't search new sources, here's what the catalog has"
+   * classification as a real network failure, instead of hard-failing the
+   * whole action before any catalog fallback is even computed.
+   */
+  getDiscoveryRepository(): DiscoveryRepository;
 
   /** Test-only injection point. */
   runFreshDiscoveryImpl?: typeof runFreshDiscovery;
@@ -240,6 +253,23 @@ export async function findMoreOpportunities(deps: FindMoreDependencies): Promise
       resultsFound: catalogFallback.length,
       errorSummary: null,
     });
+    // No source scored highly enough to select — either every real source
+    // was residency-restricted away, or (the common case) the profile has
+    // no interests/goals at all, so there's nothing to score relevance
+    // against (see scoreDiscoverySources). Only call this out explicitly
+    // when there's nothing else to fall back on; a student with a decent
+    // catalog fallback doesn't need to be told to edit their profile.
+    if (catalogFallback.length === 0 && deps.profile.interests.length === 0 && deps.profile.goals.length === 0) {
+      return {
+        recommendations: [],
+        usedDiscovery: false,
+        discoveryRunId: runId,
+        sourcesSearched: [],
+        sourceFailures: [],
+        status: "profile_incomplete",
+        message: "Add a few interests or goals to your profile so I know what kinds of opportunities to look for.",
+      };
+    }
     return classifyOutcome({
       recommendations: catalogFallback,
       usedDiscovery: false,
@@ -252,6 +282,31 @@ export async function findMoreOpportunities(deps: FindMoreDependencies): Promise
 
   await deps.updateDiscoveryRunStatus(runId, "discovering");
 
+  // Constructing the real repository (a service-role client) happens here,
+  // not earlier — see getDiscoveryRepository's doc comment. A failure here
+  // (e.g. missing SUPABASE_SERVICE_ROLE_KEY) is a discovery-run failure,
+  // not a whole-action failure: it degrades to the catalog fallback plus
+  // an honest message, exactly like every source failing would.
+  let discoveryRepository: DiscoveryRepository;
+  try {
+    discoveryRepository = deps.getDiscoveryRepository();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error.";
+    await deps.completeDiscoveryRun(runId, { status: "failed", resultsFound: catalogFallback.length, errorSummary: message });
+    return {
+      recommendations: catalogFallback,
+      usedDiscovery: false,
+      discoveryRunId: runId,
+      sourcesSearched: [],
+      sourceFailures: [{ sourceName: "discovery setup", errorSummary: message }],
+      status: catalogFallback.length > 0 ? "ok" : "source_failure_total",
+      message:
+        catalogFallback.length > 0
+          ? null
+          : "Searching new sources isn't working right now — please try again in a bit.",
+    };
+  }
+
   const runFreshDiscoveryImpl = deps.runFreshDiscoveryImpl ?? runFreshDiscovery;
   let discoveryResult;
   try {
@@ -260,7 +315,7 @@ export async function findMoreOpportunities(deps: FindMoreDependencies): Promise
       feedbackProfile: deps.feedbackProfile,
       excludedOpportunityIds: deps.alreadyShownOpportunityIds,
       sources: selectedSources,
-      repository: deps.discoveryRepository,
+      repository: discoveryRepository,
       limits: deps.limits,
       now,
       logger: deps.logger,
