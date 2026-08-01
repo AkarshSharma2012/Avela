@@ -26,11 +26,11 @@ export default async function ReviewPage({ params }: { params: Promise<PageParam
 
   if (!view) {
     return (
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-12">
+      <main id="main-content" className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-12">
         <p className="text-sm text-muted-foreground">
           This review link isn&apos;t available. It may have expired, been revoked, or the link may be incorrect.
         </p>
-      </div>
+      </main>
     );
   }
 
@@ -45,7 +45,7 @@ export default async function ReviewPage({ params }: { params: Promise<PageParam
         <p className="mt-3 text-xs text-muted-foreground">Last updated {lastUpdatedLabel}</p>
       </header>
 
-      <div className="flex flex-col gap-6 print:gap-8">
+      <main id="main-content" className="flex flex-col gap-6 print:gap-8">
         {view.items.map((item, index) => (
           <section key={index} className="rounded-md border border-border px-5 py-4 print:break-inside-avoid">
             <h2 className="text-lg font-medium text-foreground">{item.itemTitle}</h2>
@@ -79,7 +79,7 @@ export default async function ReviewPage({ params }: { params: Promise<PageParam
             )}
           </section>
         ))}
-      </div>
+      </main>
 
       <footer className="border-t border-border pt-4 text-xs text-muted-foreground print:hidden">
         <p>

@@ -95,8 +95,10 @@ function StepInterests({
               onChange={(event) => onChange({ otherInterestText: event.target.value })}
               placeholder="What else are you interested in?"
               aria-invalid={Boolean(errors.otherInterestText)}
+              aria-describedby={errors.otherInterestText ? "otherInterestText-error" : undefined}
             />
             <FieldError
+              id="otherInterestText-error"
               errors={errors.otherInterestText ? [errors.otherInterestText] : undefined}
             />
           </div>

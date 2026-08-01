@@ -200,6 +200,7 @@ function GuidedCaptureFlow() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:py-12 lg:px-8">
+      <h1 className="sr-only">Add to your portfolio</h1>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr] lg:items-start lg:gap-8">
         <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
           <div className="border-b border-border bg-secondary/30 px-5 py-4 sm:px-8">

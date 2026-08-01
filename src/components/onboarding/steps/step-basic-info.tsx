@@ -68,8 +68,9 @@ function StepBasicInfo({
           onChange={(event) => onChange({ country: event.target.value })}
           autoComplete="country-name"
           aria-invalid={Boolean(errors.country)}
+          aria-describedby={errors.country ? "country-error" : undefined}
         />
-        <FieldError errors={errors.country ? [errors.country] : undefined} />
+        <FieldError id="country-error" errors={errors.country ? [errors.country] : undefined} />
       </div>
 
       <div className="animate-fade-up grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -86,8 +87,9 @@ function StepBasicInfo({
             onChange={(event) => onChange({ city: event.target.value })}
             autoComplete="address-level2"
             aria-invalid={Boolean(errors.city)}
+            aria-describedby={errors.city ? "city-error" : undefined}
           />
-          <FieldError errors={errors.city ? [errors.city] : undefined} />
+          <FieldError id="city-error" errors={errors.city ? [errors.city] : undefined} />
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="state">
@@ -102,8 +104,9 @@ function StepBasicInfo({
             onChange={(event) => onChange({ state: event.target.value })}
             autoComplete="address-level1"
             aria-invalid={Boolean(errors.state)}
+            aria-describedby={errors.state ? "state-error" : undefined}
           />
-          <FieldError errors={errors.state ? [errors.state] : undefined} />
+          <FieldError id="state-error" errors={errors.state ? [errors.state] : undefined} />
         </div>
       </div>
     </div>

@@ -100,6 +100,7 @@ function FileUploadForm({ portfolioItemId }: { portfolioItemId: string }) {
           accept="application/pdf,.docx,.pdf,image/png,image/jpeg"
           onChange={handleFileChange}
           disabled={state.status === "uploading"}
+          aria-describedby={state.status === "error" ? "portfolio-file-error" : undefined}
           className="text-sm text-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-card file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
         />
         {state.status === "uploading" && <Upload aria-hidden="true" className="size-4 shrink-0 animate-pulse text-primary" />}
@@ -121,7 +122,7 @@ function FileUploadForm({ portfolioItemId }: { portfolioItemId: string }) {
         </div>
       )}
 
-      {state.status === "error" && <FieldError errors={[state.message]} />}
+      {state.status === "error" && <FieldError id="portfolio-file-error" errors={[state.message]} />}
     </div>
   );
 }

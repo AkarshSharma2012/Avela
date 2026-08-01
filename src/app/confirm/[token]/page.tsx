@@ -21,7 +21,7 @@ export default async function ConfirmClaimPage({ params }: { params: Promise<Pag
   const view = await getConfirmationRequestForReviewer(token);
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-12">
+    <main id="main-content" className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-12">
       <p className="text-xs font-medium tracking-wide text-primary uppercase">Avela</p>
       <h1 className="mt-2 font-heading text-2xl text-foreground">Quick confirmation</h1>
 
@@ -49,6 +49,6 @@ export default async function ConfirmClaimPage({ params }: { params: Promise<Pag
           <ConfirmationResponseForm token={token} />
         </div>
       )}
-    </div>
+    </main>
   );
 }

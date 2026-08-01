@@ -55,7 +55,7 @@ function AppShell({ email, weekSnapshot, children }: { email: string; weekSnapsh
           <MobileNav email={email} weekSnapshot={weekSnapshot} logoutSlot={logoutSlot} />
         </header>
 
-        <main className="flex-1 overflow-x-hidden">{children}</main>
+        <main id="main-content" className="flex-1 overflow-x-hidden">{children}</main>
       </div>
     </div>
   );

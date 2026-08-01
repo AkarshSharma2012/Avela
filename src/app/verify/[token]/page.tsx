@@ -4,7 +4,13 @@ import { VerifierResponseForm } from "@/components/verification/verifier-respons
 import { PORTFOLIO_ITEM_TYPE_LABELS } from "@/lib/portfolio/constants";
 import { getVerifierClaim } from "@/lib/verification/actions";
 
-export const metadata: Metadata = { title: "Confirm a claim — Avela" };
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export const metadata: Metadata = {
+  title: "Confirm a claim — Avela",
+  robots: { index: false, follow: false },
+};
 
 type PageParams = { token: string };
 
@@ -19,7 +25,7 @@ export default async function VerifyClaimPage({ params }: { params: Promise<Page
   const { claim, error } = await getVerifierClaim(token);
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-12">
+    <main id="main-content" className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-12">
       <p className="text-xs font-medium tracking-wide text-primary uppercase">Avela</p>
       <h1 className="mt-2 font-heading text-2xl text-foreground">Confirm a claim</h1>
 
@@ -41,6 +47,6 @@ export default async function VerifyClaimPage({ params }: { params: Promise<Page
           <VerifierResponseForm token={token} />
         </div>
       )}
-    </div>
+    </main>
   );
 }
