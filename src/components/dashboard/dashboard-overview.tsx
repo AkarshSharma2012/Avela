@@ -1,13 +1,13 @@
 import { Bookmark, CalendarClock, Sparkles } from "lucide-react";
 
 import { MetricTile } from "@/components/dashboard/metric-tile";
-import { ProgressGauge } from "@/components/dashboard/progress-gauge";
+import { ProgressOverviewPanel } from "@/components/dashboard/progress-overview-panel";
 
 /**
- * The dashboard's one asymmetrical "state of things" composition (spec
- * section 2) — two progress rings on the left, three unevenly-weighted
- * metric tiles on the right, reading as a single deliberate layout rather
- * than four-to-six identical SaaS cards.
+ * The dashboard's "state of things" composition (spec section 2) — one
+ * combined progress panel (profile readiness + application momentum, read
+ * as related signals) beside three comparably-weighted metric tiles, all
+ * top-aligned so neither side stretches to fill the other's height.
  */
 function DashboardOverview({
   profileStrengthPercent,
@@ -39,29 +39,37 @@ function DashboardOverview({
         Progress overview
       </h2>
 
-      <div className="flex flex-col gap-3 sm:flex-row lg:col-span-5">
-        <ProgressGauge
-          percent={profileStrengthPercent}
-          label="Profile readiness"
-          sublabel="Documentation completeness — not verification"
-          tone="primary"
-        />
-        <ProgressGauge
-          percent={applicationMomentumPercent}
-          label="Application momentum"
-          sublabel={momentumSublabel}
-          tone="success"
+      <div className="lg:col-span-5">
+        <ProgressOverviewPanel
+          rows={[
+            {
+              key: "profile",
+              percent: profileStrengthPercent,
+              label: "Profile readiness",
+              sublabel: "Documentation completeness — not verification",
+              tone: "primary",
+            },
+            {
+              key: "momentum",
+              percent: applicationMomentumPercent,
+              label: "Application momentum",
+              sublabel: momentumSublabel,
+              tone: "success",
+            },
+          ]}
         />
       </div>
 
-      <div className="grid grid-cols-2 grid-rows-2 gap-3 lg:col-span-7">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:col-span-7">
         <MetricTile
           label="Strong matches"
           value={strongMatchCount}
           icon={Sparkles}
           tone="success"
           href="/opportunities"
-          span="col-span-1 row-span-2"
+          emptyTitle="No strong matches yet"
+          emptyBody="Your next search can change this."
+          emptyActionLabel="Find opportunities"
         />
         <MetricTile
           label="Saved"
@@ -69,7 +77,8 @@ function DashboardOverview({
           icon={Bookmark}
           tone="gold"
           href="/saved"
-          span="col-span-1 row-span-1"
+          emptyTitle="Nothing saved yet"
+          emptyBody="Save opportunities to compare later."
         />
         <MetricTile
           label="Deadlines"
@@ -78,7 +87,8 @@ function DashboardOverview({
           tone="coral"
           secondary="next 14 days"
           href="/applications"
-          span="col-span-1 row-span-1"
+          emptyTitle="No deadlines soon"
+          emptyBody="You're clear for the next 14 days."
         />
       </div>
     </section>

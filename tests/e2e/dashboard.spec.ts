@@ -50,11 +50,15 @@ function checklistSection(page: Page) {
   return main(page).locator('section[aria-labelledby="checklist-heading"]');
 }
 
+/**
+ * A non-zero metric tile leads with the count ("3 Strong matches"); a zero
+ * one leads with an honest empty-state message instead of a bare "0" (spec
+ * section 3) — this reads whichever form is actually rendered.
+ */
 async function metricValue(tile: ReturnType<typeof overviewSection>): Promise<number> {
   const text = (await tile.innerText()).trim();
   const match = text.match(/^(\d+)/);
-  expect(match, `metric tile text "${text}" should start with a number`).not.toBeNull();
-  return Number(match![1]);
+  return match ? Number(match[1]) : 0;
 }
 
 test("loads for an authenticated persona and renders a compact header", async ({ page, e2eSession: _e2eSession }) => {
@@ -65,11 +69,19 @@ test("loads for an authenticated persona and renders a compact header", async ({
   await expect(heading).toHaveText(/^good (morning|afternoon|evening), .+\.$/i);
 
   await expect(main(page).getByText("Dashboard", { exact: true })).toBeVisible();
-  await expect(main(page).getByRole("link", { name: "Find opportunities" })).toBeVisible();
+  // exact: true — the Strong Matches tile's empty-state copy also ends in
+  // "Find opportunities" as an inline cue, so a substring match is ambiguous.
+  await expect(main(page).getByRole("link", { name: "Find opportunities", exact: true })).toBeVisible();
 
   // Compact — a single line of greeting, not the old full-viewport hero.
   const box = await heading.boundingBox();
   expect(box?.height ?? 0).toBeLessThan(80);
+
+  // The sidebar's real-data "Your week" snapshot — a freshly seeded persona
+  // has no active applications, so it must say so honestly.
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  await expect(nav.locator("..").getByText("Your week", { exact: true })).toBeVisible();
+  await expect(nav.locator("..").getByText(/No active applications yet/i)).toBeVisible();
 });
 
 test("labels profile documentation completeness correctly, never as verification", async ({ page, e2eSession: _e2eSession }) => {
@@ -90,17 +102,24 @@ test("overview metrics reflect real backend data, including honest zero states",
   await expect(page).toHaveURL(/\/dashboard/);
   const overview = overviewSection(page);
 
-  const strongMatches = await metricValue(overview.getByRole("link", { name: /Strong matches/i }));
+  const strongMatchesTile = overview.getByRole("link", { name: /Strong matches/i });
+  const strongMatches = await metricValue(strongMatchesTile);
   expect(Number.isInteger(strongMatches)).toBe(true);
   expect(strongMatches).toBeGreaterThanOrEqual(0);
+  if (strongMatches === 0) {
+    await expect(strongMatchesTile).toContainText("No strong matches yet");
+  }
 
   // A freshly seeded persona has never saved an opportunity or started an
-  // application — these must read exactly zero, not a placeholder.
-  const saved = await metricValue(overview.getByRole("link", { name: /Saved/i }));
-  expect(saved).toBe(0);
+  // application — these must read exactly zero, and say so honestly rather
+  // than showing a bare "0" in an otherwise-empty tile.
+  const savedTile = overview.getByRole("link", { name: /Saved/i });
+  expect(await metricValue(savedTile)).toBe(0);
+  await expect(savedTile).toContainText("Nothing saved yet");
 
-  const deadlines = await metricValue(overview.getByRole("link", { name: /Deadlines/i }));
-  expect(deadlines).toBe(0);
+  const deadlinesTile = overview.getByRole("link", { name: /Deadlines/i });
+  expect(await metricValue(deadlinesTile)).toBe(0);
+  await expect(deadlinesTile).toContainText("No deadlines soon");
 });
 
 test("priority action panel renders a valid state for the current backend condition", async ({ page, e2eSession: _e2eSession }) => {
@@ -229,9 +248,12 @@ test("existing sidebar navigation still works from the dashboard", async ({ page
 
   const nav = page.getByRole("navigation", { name: "Primary" });
   await nav.getByRole("link", { name: "Opportunities", exact: true }).click();
-  await expect(page).toHaveURL(/\/opportunities/);
+  // Generous timeout — this is the only test in the suite that navigates to
+  // /opportunities, so it's the first hit on that route in this dev
+  // server's lifetime and can hit a real Turbopack cold-compile delay.
+  await expect(page).toHaveURL(/\/opportunities/, { timeout: 20_000 });
 
   await nav.getByRole("link", { name: "Dashboard", exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });

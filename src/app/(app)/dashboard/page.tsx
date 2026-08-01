@@ -12,7 +12,7 @@ import { DiscoverMore } from "@/components/opportunities/discover-more";
 import { FindMoreButton } from "@/components/opportunities/find-more-button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { isActiveApplicationStatus } from "@/lib/applications/constants";
-import { getApplicationPlans } from "@/lib/applications/repository";
+import { getCachedApplicationPlans } from "@/lib/applications/dal";
 import { buildDashboardApplicationSummary, computePlanProgress } from "@/lib/applications/summary";
 import { requireProfile } from "@/lib/auth/dal";
 import { getOnboardingSummary } from "@/lib/onboarding/dal";
@@ -76,7 +76,7 @@ export default async function DashboardPage({
       getSavedOpportunityIds(supabase, profile.id),
       getFeedbackProfileForUser(supabase, profile.id),
       getDismissedOpportunityIds(supabase, profile.id),
-      getApplicationPlans(supabase, profile.id),
+      getCachedApplicationPlans(profile.id),
       synchronizeRemindersForUser(supabase, profile.id),
     ]);
   const reminders = await listRemindersForUser(supabase, profile.id);
@@ -251,74 +251,19 @@ export default async function DashboardPage({
         upcomingDeadlineCount={applicationSummary.upcomingDeadlineCount}
       />
 
-      <PriorityActionPanel
-        overdueTaskCount={applicationSummary.overdueTaskCount}
-        nearestDeadline={applicationSummary.nearestDeadline}
-        overdueReminderCount={reminderSummary.overdueCount}
-        nextReminder={reminderSummary.next ? { title: reminderSummary.next.title, remindAt: reminderSummary.next.remind_at } : null}
-        nextReminderHref={nextReminderHref}
-        featured={featuredEntry}
-      />
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <PriorityActionPanel
+            overdueTaskCount={applicationSummary.overdueTaskCount}
+            nearestDeadline={applicationSummary.nearestDeadline}
+            overdueReminderCount={reminderSummary.overdueCount}
+            nextReminder={reminderSummary.next ? { title: reminderSummary.next.title, remindAt: reminderSummary.next.remind_at } : null}
+            nextReminderHref={nextReminderHref}
+            featured={featuredEntry}
+          />
+        </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <section aria-labelledby="recommended-heading" className="flex flex-col gap-3 rounded-lg border border-border bg-card px-5 py-4 lg:col-span-2">
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-            <h2 id="recommended-heading" className="text-xs font-semibold tracking-wide text-primary uppercase">
-              Recommended for you
-            </h2>
-            <Link href="/opportunities" className="shrink-0 text-xs font-medium text-primary underline-offset-4 hover:underline">
-              View all
-            </Link>
-          </div>
-
-          {poolError ? (
-            <EmptyState icon={AlertTriangle} title="Couldn't load your matches." description={poolError} />
-          ) : chosenForYou.status === "empty" ? (
-            <>
-              <EmptyState
-                icon={Compass}
-                title="We haven't verified any opportunities matching your profile yet."
-                description="Check back soon as more are verified, browse everything we have so far, or search fresh sources now."
-                action={{ label: "Browse Opportunities", href: "/opportunities" }}
-              />
-              <DiscoverMore />
-            </>
-          ) : (
-            <>
-              <div className="divide-y divide-border">
-                {recommendedEntries.map((entry) => (
-                  <RecommendedOpportunityRow
-                    key={entry.opportunity.id}
-                    opportunity={entry.opportunity}
-                    matchResult={entry.matchResult}
-                    isSaved={savedIds.has(entry.opportunity.id)}
-                    whyItFits={entry.matchResult.tier !== "limited_fit" ? (entry.matchResult.reasons[0] ?? null) : null}
-                  />
-                ))}
-              </div>
-
-              {chosenForYou.status === "exhausted" && <DiscoverMore />}
-
-              {chosenForYou.status === "only_broader_remaining" && chosenForYou.nextShown !== null && (
-                <div className="flex flex-col items-start gap-2 rounded-md bg-secondary px-4 py-3">
-                  <p role="status" className="text-sm text-muted-foreground">
-                    I found a few more, but they are not as closely matched to your interests and preferences.
-                  </p>
-                  <FindMoreButton href={`/dashboard?shown=${chosenForYou.nextShown}`} />
-                </div>
-              )}
-
-              {chosenForYou.status === "has_more" && chosenForYou.nextShown !== null && (
-                <div className="flex flex-col items-start gap-2 rounded-md bg-secondary px-4 py-3">
-                  <p className="text-sm text-foreground">Want to see a few more matches?</p>
-                  <FindMoreButton href={`/dashboard?shown=${chosenForYou.nextShown}`} />
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        <section aria-labelledby="upcoming-heading" className="flex flex-col gap-1 rounded-lg border border-border bg-card px-3 py-4">
+        <section aria-labelledby="upcoming-heading" className="flex flex-col gap-1 rounded-lg border border-border bg-card px-3 py-3">
           <h2 id="upcoming-heading" className="px-2 text-xs font-semibold tracking-wide text-primary uppercase">
             Up next
           </h2>
@@ -358,6 +303,63 @@ export default async function DashboardPage({
           )}
         </section>
       </div>
+
+      <section aria-labelledby="recommended-heading" className="flex flex-col gap-3 rounded-lg border border-border bg-card px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <h2 id="recommended-heading" className="text-xs font-semibold tracking-wide text-primary uppercase">
+            Recommended for you
+          </h2>
+          <Link href="/opportunities" className="shrink-0 text-xs font-medium text-primary underline-offset-4 hover:underline">
+            View all
+          </Link>
+        </div>
+
+        {poolError ? (
+          <EmptyState icon={AlertTriangle} title="Couldn't load your matches." description={poolError} />
+        ) : chosenForYou.status === "empty" ? (
+          <>
+            <EmptyState
+              icon={Compass}
+              title="We haven't verified any opportunities matching your profile yet."
+              description="Check back soon as more are verified, browse everything we have so far, or search fresh sources now."
+              action={{ label: "Browse Opportunities", href: "/opportunities" }}
+            />
+            <DiscoverMore />
+          </>
+        ) : (
+          <>
+            <div className="divide-y divide-border">
+              {recommendedEntries.map((entry) => (
+                <RecommendedOpportunityRow
+                  key={entry.opportunity.id}
+                  opportunity={entry.opportunity}
+                  matchResult={entry.matchResult}
+                  isSaved={savedIds.has(entry.opportunity.id)}
+                  whyItFits={entry.matchResult.tier !== "limited_fit" ? (entry.matchResult.reasons[0] ?? null) : null}
+                />
+              ))}
+            </div>
+
+            {chosenForYou.status === "exhausted" && <DiscoverMore />}
+
+            {chosenForYou.status === "only_broader_remaining" && chosenForYou.nextShown !== null && (
+              <div className="flex flex-col items-start gap-2 rounded-md bg-secondary px-4 py-3">
+                <p role="status" className="text-sm text-muted-foreground">
+                  I found a few more, but they are not as closely matched to your interests and preferences.
+                </p>
+                <FindMoreButton href={`/dashboard?shown=${chosenForYou.nextShown}`} />
+              </div>
+            )}
+
+            {chosenForYou.status === "has_more" && chosenForYou.nextShown !== null && (
+              <div className="flex flex-col items-start gap-2 rounded-md bg-secondary px-4 py-3">
+                <p className="text-sm text-foreground">Want to see a few more matches?</p>
+                <FindMoreButton href={`/dashboard?shown=${chosenForYou.nextShown}`} />
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
       <ProgressChecklist items={checklistItems} />
 

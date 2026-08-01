@@ -5,14 +5,17 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Menu, X } from "lucide-react";
 
 import { NavLinks } from "@/components/layout/nav-links";
+import { SidebarAccount } from "@/components/layout/sidebar-account";
+import { SidebarWeekSnapshot, type WeekSnapshot } from "@/components/layout/sidebar-week-snapshot";
 
 /**
  * Mobile navigation drawer. A positioned Dialog rather than Drawer — no
  * swipe-to-dismiss gesture is needed, per Base UI's own guidance ("a panel
  * that slides in from the edge of the screen and doesn't need gesture
- * support is a positioned Dialog").
+ * support is a positioned Dialog"). Mirrors the desktop sidebar's three
+ * zones (nav, week snapshot, account) so both stay consistent.
  */
-function MobileNav({ email, logoutSlot }: { email: string; logoutSlot: ReactNode }) {
+function MobileNav({ email, weekSnapshot, logoutSlot }: { email: string; weekSnapshot: WeekSnapshot; logoutSlot: ReactNode }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -45,11 +48,12 @@ function MobileNav({ email, logoutSlot }: { email: string; logoutSlot: ReactNode
 
           <NavLinks onNavigate={() => setOpen(false)} />
 
-          <div className="mt-auto border-t border-sidebar-border pt-4">
-            <p className="truncate text-xs text-sidebar-foreground/60" title={email}>
-              {email}
-            </p>
-            <div className="mt-3">{logoutSlot}</div>
+          <div className="mt-auto pt-4">
+            <SidebarWeekSnapshot snapshot={weekSnapshot} />
+          </div>
+
+          <div className="mt-4 border-t border-sidebar-border pt-4">
+            <SidebarAccount email={email} logoutSlot={logoutSlot} />
           </div>
         </Dialog.Popup>
       </Dialog.Portal>

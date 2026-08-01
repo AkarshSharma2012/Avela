@@ -40,7 +40,7 @@ function RecommendedOpportunityRow({
   whyItFits: string | null;
 }) {
   return (
-    <div className="flex items-center gap-3 py-3">
+    <div className="-mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-secondary/50">
       <OpportunityTypeIcon type={opportunity.opportunity_type} className="size-8" />
 
       <Link

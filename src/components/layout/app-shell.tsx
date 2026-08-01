@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { NavLinks } from "@/components/layout/nav-links";
+import { SidebarAccount } from "@/components/layout/sidebar-account";
+import { SidebarWeekSnapshot, type WeekSnapshot } from "@/components/layout/sidebar-week-snapshot";
 
 /**
  * The authenticated app shell: a sidebar on desktop, a top bar + drawer on
@@ -11,8 +13,17 @@ import { NavLinks } from "@/components/layout/nav-links";
  * Server Component rendered here and passed into the Client `MobileNav` as
  * a prop, rather than imported from within it — Client Components can't
  * import Server Components directly, only receive their rendered output.
+ *
+ * Three deliberate sidebar zones (spec section 1) so it never reads as one
+ * uninterrupted dark rectangle: nav pinned to the top, one compact
+ * real-data snapshot pinned to the bottom of the middle zone via
+ * `mt-auto`, and the account row fixed at the very bottom.
  */
-function AppShell({ email, children }: { email: string; children: ReactNode }) {
+function AppShell({ email, weekSnapshot, children }: { email: string; weekSnapshot: WeekSnapshot; children: ReactNode }) {
+  const logoutSlot = (
+    <LogoutButton className="border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
+  );
+
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">
       <aside className="hidden border-r border-sidebar-border bg-sidebar lg:sticky lg:top-0 lg:flex lg:h-svh lg:w-64 lg:shrink-0 lg:flex-col">
@@ -23,17 +34,15 @@ function AppShell({ email, children }: { email: string; children: ReactNode }) {
           </Link>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-3 py-2">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-3">
           <NavLinks />
+          <div className="mt-auto pt-4">
+            <SidebarWeekSnapshot snapshot={weekSnapshot} />
+          </div>
         </div>
 
         <div className="border-t border-sidebar-border px-4 py-4">
-          <p className="truncate text-xs text-sidebar-foreground/60" title={email}>
-            {email}
-          </p>
-          <div className="mt-3">
-            <LogoutButton className="border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
-          </div>
+          <SidebarAccount email={email} logoutSlot={logoutSlot} />
         </div>
       </aside>
 
@@ -43,12 +52,7 @@ function AppShell({ email, children }: { email: string; children: ReactNode }) {
             <span className="gradient-signal size-5 shrink-0 rounded-md" />
             Avela
           </Link>
-          <MobileNav
-            email={email}
-            logoutSlot={
-              <LogoutButton className="border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
-            }
-          />
+          <MobileNav email={email} weekSnapshot={weekSnapshot} logoutSlot={logoutSlot} />
         </header>
 
         <main className="flex-1 overflow-x-hidden">{children}</main>
