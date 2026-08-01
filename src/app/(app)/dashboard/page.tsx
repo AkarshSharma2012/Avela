@@ -1,33 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  AlertTriangle,
-  Bookmark,
-  CalendarClock,
-  Compass,
-  Layers,
-  TrendingUp,
-} from "lucide-react";
+import { AlertTriangle, Bell, Bookmark, CalendarClock, Compass } from "lucide-react";
 
-import { TodayHero } from "@/components/dashboard/today-hero";
+import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { DashboardOverview } from "@/components/dashboard/dashboard-overview";
+import { PriorityActionPanel } from "@/components/dashboard/priority-action";
+import { ProgressChecklist, type ChecklistItem } from "@/components/dashboard/progress-checklist";
+import { RecommendedOpportunityRow } from "@/components/dashboard/recommended-opportunity-row";
+import { UpcomingActionRow } from "@/components/dashboard/upcoming-action-row";
 import { DiscoverMore } from "@/components/opportunities/discover-more";
-import { FeaturedMatchCard } from "@/components/opportunities/featured-match-card";
 import { FindMoreButton } from "@/components/opportunities/find-more-button";
-import { OpportunityCard } from "@/components/opportunities/opportunity-card";
-import type { RecommendationFeedbackState } from "@/components/opportunities/recommendation-feedback-controls";
-import { DashboardPortfolioCard } from "@/components/portfolio/dashboard-portfolio-card";
-import { buttonVariants } from "@/components/ui/button";
-import { Chip } from "@/components/ui/chip";
 import { EmptyState } from "@/components/ui/empty-state";
-import { NodeTrack, type TrackNode } from "@/components/ui/node-track";
 import { isActiveApplicationStatus } from "@/lib/applications/constants";
 import { getApplicationPlans } from "@/lib/applications/repository";
-import { buildDashboardApplicationSummary } from "@/lib/applications/summary";
+import { buildDashboardApplicationSummary, computePlanProgress } from "@/lib/applications/summary";
 import { requireProfile } from "@/lib/auth/dal";
 import { getOnboardingSummary } from "@/lib/onboarding/dal";
 import {
   EXPERIENCE_LEVEL_OPTIONS,
-  PREFERENCE_GROUPS,
   WEEKLY_AVAILABILITY_OPTIONS,
 } from "@/lib/onboarding/constants";
 import { buildPortfolioDashboardSummary } from "@/lib/portfolio/dashboard";
@@ -38,135 +28,26 @@ import { buildReminderDashboardSummary } from "@/lib/reminders/intelligence";
 import { formatReminderDateTime } from "@/lib/reminders/format";
 import { listRemindersForUser } from "@/lib/reminders/repository";
 import { synchronizeRemindersForUser } from "@/lib/reminders/sync";
-import type { ChosenForYouEntry } from "@/lib/opportunities/chosen-for-you";
 import { buildChosenForYou } from "@/lib/opportunities/chosen-for-you";
-import { TYPE_LABELS } from "@/lib/opportunities/constants";
 import {
   getDismissedOpportunityIds,
   getFeedbackProfileForUser,
-  getFeedbackStateForOpportunities,
 } from "@/lib/opportunities/feedback-repository";
 import { buildMatchProfileInput } from "@/lib/opportunities/matching";
-import {
-  getOpportunitySourceNames,
-  getSavedOpportunityIds,
-  listOpportunitiesForMatching,
-} from "@/lib/opportunities/query";
+import { getSavedOpportunityIds, listOpportunitiesForMatching } from "@/lib/opportunities/query";
 import { formatShortDate } from "@/lib/opportunities/format";
 import { getFirstName } from "@/lib/profile/display";
 import { createClient } from "@/lib/supabase/server";
-import { cn } from "@/lib/utils";
-import type { OpportunityPreferenceKey, RecommendationFeedbackType } from "@/types/database";
-import type { Opportunity } from "@/types/opportunity";
-
-/** Flattened `value → label` lookup built once from the grouped preference options — no separate label map to keep in sync. */
-const PREFERENCE_LABELS: Partial<Record<OpportunityPreferenceKey, string>> = Object.fromEntries(
-  PREFERENCE_GROUPS.flatMap((group) => group.options.map((option) => [option.value, option.label]))
-);
 
 export const metadata: Metadata = {
   title: "Dashboard — Avela",
 };
-
-const JOURNEY: TrackNode[] = [
-  { key: "profile", label: "Profile complete", state: "done" },
-  { key: "personalization", label: "Personalization ready", state: "done" },
-  { key: "opportunities", label: "Matches ready", state: "done" },
-];
 
 /** Malformed/negative/missing `?shown=` degrades to the first page rather than throwing — same "bad URL never 500s" rule `parseOpportunityFilters` follows. */
 function parseShown(raw: string | string[] | undefined): number {
   const value = Array.isArray(raw) ? raw[0] : raw;
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-/** Converts the repository's `Set<feedback_type>` into the small typed shape the card components render — see recommendation-feedback-controls.tsx. */
-function toFeedbackState(types: ReadonlySet<RecommendationFeedbackType> | undefined): RecommendationFeedbackState {
-  return {
-    moreLikeThis: types?.has("more_like_this") ?? false,
-    remindLater: types?.has("remind_later") ?? false,
-    helpMeApply: types?.has("help_me_apply") ?? false,
-  };
-}
-
-function ChipList({ items, emptyLabel }: { items: string[]; emptyLabel: string }) {
-  if (items.length === 0) {
-    return <span className="text-sm text-text-secondary">{emptyLabel}</span>;
-  }
-  return (
-    <div className="flex flex-wrap gap-2">
-      {items.map((item) => (
-        <Chip key={item}>{item}</Chip>
-      ))}
-    </div>
-  );
-}
-
-const ACCENT_CHIP_CLASSES = {
-  insight: "border-insight/25 bg-insight/10 text-insight",
-  primary: "border-primary/25 bg-primary/10 text-primary",
-} as const;
-
-/** A `Chip` in one of the dashboard's two personalization accent colors — purple for interests, blue for location/grade — never used for status (MatchBadge/EligibilityBadge/VerificationBadge own that). */
-function AccentChip({
-  variant,
-  children,
-}: {
-  variant: keyof typeof ACCENT_CHIP_CLASSES;
-  children: string;
-}) {
-  return <Chip size="sm" className={ACCENT_CHIP_CLASSES[variant]}>{children}</Chip>;
-}
-
-type Insight = { icon: typeof TrendingUp; label: string; colorClass: string };
-
-/**
- * Small, honest "at a glance" stats about the matches actually being shown
- * right now — never a claim about the full catalog, and never invented: a
- * count is only surfaced when it's greater than zero (a "most common type"
- * insight only when it genuinely covers more than half of what's shown).
- */
-function buildInsights(entries: ChosenForYouEntry[]): Insight[] {
-  const insights: Insight[] = [];
-  if (entries.length === 0) return insights;
-
-  const strongCount = entries.filter((entry) => entry.matchResult.tier === "strong_fit").length;
-  if (strongCount > 0) {
-    insights.push({
-      icon: TrendingUp,
-      label: `${strongCount} strong ${strongCount === 1 ? "match" : "matches"}`,
-      colorClass: "border-primary/25 bg-primary/10 text-primary",
-    });
-  }
-
-  const deadlineCount = entries.filter(
-    (entry) => entry.opportunity.deadline_status === "open" && entry.opportunity.application_deadline !== null
-  ).length;
-  if (deadlineCount > 0) {
-    insights.push({
-      icon: CalendarClock,
-      label: `${deadlineCount} ${deadlineCount === 1 ? "deadline needs" : "deadlines need"} attention`,
-      colorClass: "border-gold/40 bg-gold/15 text-gold-foreground",
-    });
-  }
-
-  const typeCounts = new Map<Opportunity["opportunity_type"], number>();
-  for (const entry of entries) {
-    const type = entry.opportunity.opportunity_type;
-    typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
-  }
-  const topType = [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0];
-  if (topType && entries.length >= 2 && topType[1] / entries.length > 0.5) {
-    const label = TYPE_LABELS[topType[0]];
-    insights.push({
-      icon: Layers,
-      label: `Most of your matches are ${label.toLowerCase()}s`,
-      colorClass: "border-insight/25 bg-insight/10 text-insight",
-    });
-  }
-
-  return insights;
 }
 
 export default async function DashboardPage({
@@ -177,11 +58,8 @@ export default async function DashboardPage({
   const profile = await requireProfile();
   const firstName = getFirstName(profile);
   const onboardingSummary = await getOnboardingSummary(profile.id);
-  const { interests, otherInterestText, goals } = onboardingSummary;
+  const { interests } = onboardingSummary;
 
-  const interestChips = interests.map((interest) =>
-    interest === "Other" && otherInterestText ? `Other (${otherInterestText})` : interest
-  );
   const weeklyAvailabilityLabel = WEEKLY_AVAILABILITY_OPTIONS.find(
     (option) => option.value === profile.weekly_availability
   )?.label;
@@ -189,9 +67,6 @@ export default async function DashboardPage({
     (option) => option.value === profile.experience_level
   )?.label;
   const locationLabel = [profile.city, profile.state].filter(Boolean).join(", ") || null;
-  const preferenceLabels = onboardingSummary.preferences
-    .map((preference) => PREFERENCE_LABELS[preference])
-    .filter((label): label is string => Boolean(label));
 
   const shown = parseShown((await searchParams).shown);
   const supabase = await createClient();
@@ -217,6 +92,17 @@ export default async function DashboardPage({
     }))
   );
 
+  const activeBundles = applicationBundles.filter((bundle) => isActiveApplicationStatus(bundle.plan.status));
+  const activeTaskTotals = activeBundles.reduce(
+    (totals, bundle) => {
+      const progress = computePlanProgress(bundle.tasks);
+      return { completed: totals.completed + progress.completed, total: totals.total + progress.total };
+    },
+    { completed: 0, total: 0 }
+  );
+  const applicationMomentumPercent =
+    activeTaskTotals.total > 0 ? Math.round((activeTaskTotals.completed / activeTaskTotals.total) * 100) : 0;
+
   const [portfolioItems, portfolioFiles, linkedPortfolioItemIds, portfolioVerifications] = await Promise.all([
     listPortfolioItems(supabase, profile.id),
     listAllFilesForUser(supabase, profile.id),
@@ -224,17 +110,16 @@ export default async function DashboardPage({
     listVerificationsForUser(supabase, profile.id),
   ]);
   const verificationLevelByItemId = new Map([...portfolioVerifications].map(([itemId, v]) => [itemId, v.verification_level]));
-  const activePlanIds = applicationBundles
-    .filter((bundle) => isActiveApplicationStatus(bundle.plan.status))
-    .map((bundle) => bundle.plan.id);
+  const activePlanIds = activeBundles.map((bundle) => bundle.plan.id);
   const evidenceCountByPlanId = await countEvidenceLinksByPlan(supabase, profile.id, activePlanIds);
   const fileCountByPortfolioItemId = new Map<string, number>();
   for (const file of portfolioFiles) {
     if (!file.portfolio_item_id) continue;
     fileCountByPortfolioItemId.set(file.portfolio_item_id, (fileCountByPortfolioItemId.get(file.portfolio_item_id) ?? 0) + 1);
   }
+  const visiblePortfolioItems = portfolioItems.filter((item) => item.visibility === "visible");
   const portfolioSummary = buildPortfolioDashboardSummary({
-    items: portfolioItems.filter((item) => item.visibility === "visible"),
+    items: visiblePortfolioItems,
     fileCountByItemId: fileCountByPortfolioItemId,
     linkedItemIds: linkedPortfolioItemIds,
     verificationLevelByItemId,
@@ -260,217 +145,132 @@ export default async function DashboardPage({
     dismissedOpportunityIds,
   });
 
-  const chosenSourceIds = [
-    ...(chosenForYou.featured ? [chosenForYou.featured.opportunity.source_id] : []),
-    ...chosenForYou.additional.map((entry) => entry.opportunity.source_id),
-  ].filter((id): id is string => id !== null);
-  const chosenOpportunityIds = [
-    ...(chosenForYou.featured ? [chosenForYou.featured.opportunity.id] : []),
-    ...chosenForYou.additional.map((entry) => entry.opportunity.id),
-  ];
-  const [chosenSourceNames, feedbackState] = await Promise.all([
-    getOpportunitySourceNames(supabase, chosenSourceIds),
-    getFeedbackStateForOpportunities(supabase, profile.id, chosenOpportunityIds),
-  ]);
-
   const allChosenEntries = chosenForYou.featured
     ? [chosenForYou.featured, ...chosenForYou.additional]
     : chosenForYou.additional;
-  const insights = buildInsights(allChosenEntries);
   const strongMatchCount = allChosenEntries.filter((entry) => entry.matchResult.tier === "strong_fit").length;
   const profileStrengthPercent =
     portfolioSummary.profileStrength.maxScore > 0
       ? Math.round((portfolioSummary.profileStrength.score / portfolioSummary.profileStrength.maxScore) * 100)
       : 0;
 
-  return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-10 sm:py-12">
-      <div className="stagger-children">
-        <p className="animate-fade-up mb-3 text-xs font-medium tracking-wide text-primary uppercase">
-          Dashboard
-        </p>
-        <h1 className="animate-fade-up font-heading text-3xl text-foreground sm:text-4xl">
-          Welcome back, {firstName}.
-        </h1>
-        <p className="animate-fade-up mt-3 max-w-lg text-base leading-relaxed text-text-secondary">
-          Your personal opportunity advisor prepared today&apos;s matches from your profile below.
-        </p>
-      </div>
+  // Checklist: profile completeness
+  const profileFieldsSet = [profile.grade_level, profile.weekly_availability, profile.experience_level, locationLabel].filter(
+    Boolean
+  ).length;
+  const profileFieldsTotal = 4;
+  const profileComplete = profileFieldsSet === profileFieldsTotal;
 
-      <TodayHero
-        firstName={firstName}
+  // Checklist: portfolio proof
+  const portfolioDoneCount = visiblePortfolioItems.length - portfolioSummary.incompleteItemCount;
+
+  const checklistItems: ChecklistItem[] = [
+    {
+      key: "profile",
+      label: "Complete your profile",
+      detail: profileComplete
+        ? [profile.grade_level ? `Grade ${profile.grade_level}` : null, locationLabel, weeklyAvailabilityLabel, experienceLevelLabel]
+            .filter(Boolean)
+            .join(" · ")
+        : `${profileFieldsSet} of ${profileFieldsTotal} details set`,
+      percent: Math.round((profileFieldsSet / profileFieldsTotal) * 100),
+      done: profileComplete,
+      actionLabel: "Edit profile",
+      href: "/profile",
+    },
+    {
+      key: "portfolio",
+      label: "Add portfolio proof",
+      detail:
+        visiblePortfolioItems.length === 0
+          ? "No portfolio items yet"
+          : portfolioSummary.incompleteItemCount > 0
+            ? `${portfolioSummary.incompleteItemCount} of ${visiblePortfolioItems.length} items need details`
+            : "All items have details",
+      percent: visiblePortfolioItems.length === 0 ? 0 : Math.round((portfolioDoneCount / visiblePortfolioItems.length) * 100),
+      done: visiblePortfolioItems.length > 0 && portfolioSummary.incompleteItemCount === 0,
+      actionLabel: visiblePortfolioItems.length === 0 ? "Add item" : "Review portfolio",
+      href: "/portfolio",
+    },
+    {
+      key: "applications",
+      label: "Finish your application",
+      detail:
+        applicationSummary.activeCount === 0
+          ? "No active applications yet"
+          : applicationSummary.overdueTaskCount > 0
+            ? `${applicationSummary.overdueTaskCount} overdue ${applicationSummary.overdueTaskCount === 1 ? "task" : "tasks"}`
+            : applicationSummary.nearestDeadline
+              ? `Next: ${applicationSummary.nearestDeadline.opportunityTitle} · ${formatShortDate(applicationSummary.nearestDeadline.date)}`
+              : `${applicationSummary.activeCount} active`,
+      percent: activeTaskTotals.total > 0 ? applicationMomentumPercent : null,
+      done: applicationSummary.activeCount > 0 && applicationSummary.overdueTaskCount === 0,
+      actionLabel: applicationSummary.activeCount === 0 ? "Get started" : "Continue",
+      href: applicationSummary.nearestDeadline ? `/applications/${applicationSummary.nearestDeadline.planId}` : "/applications",
+    },
+    {
+      key: "saved",
+      label: "Review saved opportunities",
+      detail: savedIds.size === 0 ? "Nothing saved yet" : `${savedIds.size} saved ${savedIds.size === 1 ? "opportunity" : "opportunities"}`,
+      percent: null,
+      done: savedIds.size > 0,
+      actionLabel: savedIds.size === 0 ? "Browse opportunities" : "View saved",
+      href: savedIds.size === 0 ? "/opportunities" : "/saved",
+    },
+    {
+      key: "reminders",
+      label: "Add a reminder",
+      detail:
+        reminders.length === 0
+          ? "No reminders set yet"
+          : reminderSummary.next
+            ? `Next: ${reminderSummary.next.title} — ${formatReminderDateTime(reminderSummary.next.remind_at)}`
+            : `${reminders.length} ${reminders.length === 1 ? "reminder" : "reminders"} set`,
+      percent: null,
+      done: reminders.length > 0,
+      actionLabel: reminders.length === 0 ? "Add reminder" : "View reminders",
+      href: "/reminders",
+    },
+  ];
+
+  const featuredEntry = allChosenEntries[0] ?? null;
+  const recommendedEntries = allChosenEntries.slice(0, 3);
+
+  return (
+    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-6 py-8 sm:py-10">
+      <DashboardHeader firstName={firstName} />
+
+      <DashboardOverview
+        profileStrengthPercent={profileStrengthPercent}
+        applicationMomentumPercent={applicationMomentumPercent}
+        activeApplicationCount={applicationSummary.activeCount}
+        completedTaskCount={activeTaskTotals.completed}
+        totalTaskCount={activeTaskTotals.total}
+        strongMatchCount={strongMatchCount}
+        savedCount={savedIds.size}
+        upcomingDeadlineCount={applicationSummary.upcomingDeadlineCount}
+      />
+
+      <PriorityActionPanel
         overdueTaskCount={applicationSummary.overdueTaskCount}
         nearestDeadline={applicationSummary.nearestDeadline}
         overdueReminderCount={reminderSummary.overdueCount}
         nextReminder={reminderSummary.next ? { title: reminderSummary.next.title, remindAt: reminderSummary.next.remind_at } : null}
         nextReminderHref={nextReminderHref}
-        featured={chosenForYou.featured}
-        strongMatchCount={strongMatchCount}
-        profileStrengthPercent={profileStrengthPercent}
+        featured={featuredEntry}
       />
 
-      <section aria-labelledby="foundation-heading" className="animate-fade-up mt-8">
-        <h2
-          id="foundation-heading"
-          className="text-xs font-medium tracking-wide text-primary uppercase"
-        >
-          Your profile
-        </h2>
-
-        <div className="mt-3 rounded-xl border border-border bg-card px-5 py-4">
-          <p className="text-sm text-foreground">
-            {profile.grade_level ? `Grade ${profile.grade_level}` : "Grade not set"}
-            {" · "}
-            {weeklyAvailabilityLabel ?? "Availability not set"}
-            {" · "}
-            {experienceLevelLabel ?? "Experience not set"}
-            {profile.guided_mode && " · Guided Mode on"}
-          </p>
-
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {locationLabel && <AccentChip variant="primary">{locationLabel}</AccentChip>}
-            {interestChips.map((interest) => (
-              <AccentChip key={interest} variant="insight">
-                {interest}
-              </AccentChip>
-            ))}
-            {preferenceLabels.map((label) => (
-              <Chip key={label} size="sm">
-                {label}
-              </Chip>
-            ))}
-          </div>
-
-          {goals.length > 0 && (
-            <div className="mt-3 border-t border-border pt-3">
-              <p className="text-xs font-medium text-muted-foreground">Current goals</p>
-              <div className="mt-1.5">
-                <ChipList items={goals} emptyLabel="Not set" />
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section
-        aria-labelledby="path-heading"
-        className="animate-fade-up relative mt-8 overflow-hidden rounded-md border border-primary/20 bg-[color-mix(in_oklch,var(--primary),transparent_95%)] px-6 py-6"
-      >
-        <h2
-          id="path-heading"
-          className="text-xs font-medium tracking-wide text-primary uppercase"
-        >
-          Your path
-        </h2>
-        <p className="mt-1 font-heading text-xl text-foreground">Your foundation is ready.</p>
-        <div className="mt-5">
-          <NodeTrack nodes={JOURNEY} size="md" hideConnectorBelowSm />
-        </div>
-      </section>
-
-      {(reminderSummary.next || reminderSummary.overdueCount > 0 || reminderSummary.thisWeekCount > 0) && (
-        <section aria-labelledby="reminders-heading" className="animate-fade-up mt-8">
-          <h2
-            id="reminders-heading"
-            className="text-xs font-medium tracking-wide text-primary uppercase"
-          >
-            Next up
-          </h2>
-          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-foreground">
-              {reminderSummary.next && (
-                <span>
-                  <strong className="font-heading text-lg">{reminderSummary.next.title}</strong>
-                  {" — "}
-                  {formatReminderDateTime(reminderSummary.next.remind_at)}
-                </span>
-              )}
-              {reminderSummary.overdueCount > 0 && (
-                <span className="text-destructive">
-                  <strong className="font-heading text-lg">{reminderSummary.overdueCount}</strong>{" "}
-                  overdue
-                </span>
-              )}
-              {reminderSummary.thisWeekCount > 0 && (
-                <span className="text-text-secondary">
-                  <strong className="font-heading text-lg">{reminderSummary.thisWeekCount}</strong> due this week
-                </span>
-              )}
-            </div>
-            <Link
-              href={nextReminderHref}
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
-            >
-              View reminders
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <section aria-labelledby="recommended-heading" className="flex flex-col gap-3 rounded-lg border border-border bg-card px-5 py-4 lg:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <h2 id="recommended-heading" className="text-xs font-semibold tracking-wide text-primary uppercase">
+              Recommended for you
+            </h2>
+            <Link href="/opportunities" className="shrink-0 text-xs font-medium text-primary underline-offset-4 hover:underline">
+              View all
             </Link>
           </div>
-        </section>
-      )}
 
-      {(applicationSummary.activeCount > 0 || applicationSummary.overdueTaskCount > 0) && (
-        <section aria-labelledby="applications-heading" className="animate-fade-up mt-8">
-          <h2
-            id="applications-heading"
-            className="text-xs font-medium tracking-wide text-primary uppercase"
-          >
-            Applications
-          </h2>
-          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-foreground">
-              <span>
-                <strong className="font-heading text-lg">{applicationSummary.activeCount}</strong>{" "}
-                {applicationSummary.activeCount === 1 ? "active application" : "active applications"}
-              </span>
-              {applicationSummary.overdueTaskCount > 0 && (
-                <span className="text-destructive">
-                  <strong className="font-heading text-lg">{applicationSummary.overdueTaskCount}</strong>{" "}
-                  overdue {applicationSummary.overdueTaskCount === 1 ? "task" : "tasks"}
-                </span>
-              )}
-              {applicationSummary.nearestDeadline && (
-                <span className="text-text-secondary">
-                  Next up: {applicationSummary.nearestDeadline.opportunityTitle} —{" "}
-                  {formatShortDate(applicationSummary.nearestDeadline.date)}
-                </span>
-              )}
-            </div>
-            <Link
-              href={
-                applicationSummary.nearestDeadline
-                  ? `/applications/${applicationSummary.nearestDeadline.planId}`
-                  : "/applications"
-              }
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
-            >
-              Continue application
-            </Link>
-          </div>
-        </section>
-      )}
-
-      {portfolioItems.length > 0 && (
-        <section aria-labelledby="portfolio-heading" className="animate-fade-up mt-8">
-          <h2
-            id="portfolio-heading"
-            className="text-xs font-medium tracking-wide text-primary uppercase"
-          >
-            Portfolio
-          </h2>
-          <div className="mt-3">
-            <DashboardPortfolioCard summary={portfolioSummary} />
-          </div>
-        </section>
-      )}
-
-      <section aria-labelledby="discovery-heading" className="animate-fade-up mt-8">
-        <h2
-          id="discovery-heading"
-          className="text-xs font-medium tracking-wide text-primary uppercase"
-        >
-          Chosen for you
-        </h2>
-
-        <div className="mt-4 flex flex-col gap-4">
           {poolError ? (
             <EmptyState icon={AlertTriangle} title="Couldn't load your matches." description={poolError} />
           ) : chosenForYou.status === "empty" ? (
@@ -485,97 +285,88 @@ export default async function DashboardPage({
             </>
           ) : (
             <>
-              {chosenForYou.featured && (
-                <FeaturedMatchCard
-                  opportunity={chosenForYou.featured.opportunity}
-                  matchResult={chosenForYou.featured.matchResult}
-                  eligibilityResult={chosenForYou.featured.eligibilityResult}
-                  isSaved={savedIds.has(chosenForYou.featured.opportunity.id)}
-                  feedbackState={toFeedbackState(feedbackState.get(chosenForYou.featured.opportunity.id))}
-                />
-              )}
-
-              {chosenForYou.additional.length > 0 && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {chosenForYou.additional.map((entry) => (
-                    <OpportunityCard
-                      key={entry.opportunity.id}
-                      opportunity={entry.opportunity}
-                      isSaved={savedIds.has(entry.opportunity.id)}
-                      matchResult={entry.matchResult}
-                      eligibilityResult={entry.eligibilityResult}
-                      showWhyItFits
-                      feedbackState={toFeedbackState(feedbackState.get(entry.opportunity.id))}
-                      sourceName={
-                        entry.opportunity.source_id
-                          ? (chosenSourceNames.get(entry.opportunity.source_id) ?? null)
-                          : null
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-
-              {insights.length > 0 && (
-                <ul className="flex flex-wrap gap-2" aria-label="Insights about your matches">
-                  {insights.map((insight) => (
-                    <li
-                      key={insight.label}
-                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${insight.colorClass}`}
-                    >
-                      <insight.icon aria-hidden="true" className="size-3.5" />
-                      {insight.label}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <div className="divide-y divide-border">
+                {recommendedEntries.map((entry) => (
+                  <RecommendedOpportunityRow
+                    key={entry.opportunity.id}
+                    opportunity={entry.opportunity}
+                    matchResult={entry.matchResult}
+                    isSaved={savedIds.has(entry.opportunity.id)}
+                    whyItFits={entry.matchResult.tier !== "limited_fit" ? (entry.matchResult.reasons[0] ?? null) : null}
+                  />
+                ))}
+              </div>
 
               {chosenForYou.status === "exhausted" && <DiscoverMore />}
 
               {chosenForYou.status === "only_broader_remaining" && chosenForYou.nextShown !== null && (
-                <div className="flex flex-col items-start gap-3 rounded-xl border border-border bg-secondary px-5 py-4">
+                <div className="flex flex-col items-start gap-2 rounded-md bg-secondary px-4 py-3">
                   <p role="status" className="text-sm text-muted-foreground">
-                    I found a few more, but they are not as closely matched to your interests and
-                    preferences.
+                    I found a few more, but they are not as closely matched to your interests and preferences.
                   </p>
                   <FindMoreButton href={`/dashboard?shown=${chosenForYou.nextShown}`} />
                 </div>
               )}
 
               {chosenForYou.status === "has_more" && chosenForYou.nextShown !== null && (
-                <div className="flex flex-col items-start gap-3 rounded-xl border border-primary/20 bg-[color-mix(in_oklch,var(--primary),transparent_95%)] px-5 py-4">
+                <div className="flex flex-col items-start gap-2 rounded-md bg-secondary px-4 py-3">
                   <p className="text-sm text-foreground">Want to see a few more matches?</p>
                   <FindMoreButton href={`/dashboard?shown=${chosenForYou.nextShown}`} />
                 </div>
               )}
             </>
           )}
-        </div>
-      </section>
+        </section>
 
-      <section aria-labelledby="saved-heading" className="animate-fade-up mt-8">
-        <h2
-          id="saved-heading"
-          className="text-xs font-medium tracking-wide text-primary uppercase"
-        >
-          Saved for later
-        </h2>
-        <div className="mt-4">
-          <EmptyState
-            icon={Bookmark}
-            title="Nothing saved yet."
-            description="Opportunities you save will show up here."
-            action={{ label: "Explore Opportunities", href: "/opportunities" }}
-          />
-        </div>
-      </section>
+        <section aria-labelledby="upcoming-heading" className="flex flex-col gap-1 rounded-lg border border-border bg-card px-3 py-4">
+          <h2 id="upcoming-heading" className="px-2 text-xs font-semibold tracking-wide text-primary uppercase">
+            Up next
+          </h2>
 
-      <p className="animate-fade-up mt-8 text-sm text-muted-foreground">
-        Want to look around yourself instead? Browse the full{" "}
-        <Link href="/opportunities" className="text-primary underline-offset-4 hover:underline">
-          Opportunities
-        </Link>{" "}
-        list.
+          {reminderSummary.next && (
+            <UpcomingActionRow
+              icon={Bell}
+              tone={reminderSummary.overdueCount > 0 ? "coral" : "primary"}
+              title={reminderSummary.next.title}
+              detail={formatReminderDateTime(reminderSummary.next.remind_at)}
+              href={nextReminderHref}
+            />
+          )}
+
+          {applicationSummary.nearestDeadline && (
+            <UpcomingActionRow
+              icon={CalendarClock}
+              tone="gold"
+              title={`${applicationSummary.nearestDeadline.opportunityTitle} deadline`}
+              detail={formatShortDate(applicationSummary.nearestDeadline.date)}
+              href={`/applications/${applicationSummary.nearestDeadline.planId}`}
+            />
+          )}
+
+          {savedIds.size > 0 && (
+            <UpcomingActionRow
+              icon={Bookmark}
+              tone="muted"
+              title={`${savedIds.size} saved ${savedIds.size === 1 ? "opportunity" : "opportunities"}`}
+              detail="Ready to review"
+              href="/saved"
+            />
+          )}
+
+          {!reminderSummary.next && !applicationSummary.nearestDeadline && savedIds.size === 0 && (
+            <p className="px-2 py-3 text-sm text-muted-foreground">Nothing scheduled yet — explore opportunities to get started.</p>
+          )}
+        </section>
+      </div>
+
+      <ProgressChecklist items={checklistItems} />
+
+      <p className="text-sm text-muted-foreground">
+        Interested in {interests.length > 0 ? interests.slice(0, 3).join(", ") : "something new"}? Update your interests and goals on your{" "}
+        <Link href="/profile" className="font-medium text-primary underline-offset-4 hover:underline">
+          profile
+        </Link>
+        .
       </p>
     </div>
   );

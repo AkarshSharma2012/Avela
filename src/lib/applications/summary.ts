@@ -80,7 +80,12 @@ export type DashboardApplicationSummary = {
   activeCount: number;
   overdueTaskCount: number;
   nearestDeadline: { planId: string; opportunityTitle: string; date: string } | null;
+  /** Active plans due within DEADLINE_WINDOW_DAYS (inclusive), never overdue ones — those are already counted separately via overdueTaskCount. Powers the dashboard's "Deadlines" metric tile. */
+  upcomingDeadlineCount: number;
 };
+
+/** Window used by `upcomingDeadlineCount` — matches the dashboard MetricTile's "next 14 days" label. */
+const DEADLINE_WINDOW_DAYS = 14;
 
 /** The dashboard's deliberately small "Applications" card — see AGENTS' spec section 7: nearest deadline, overdue task count, active count, nothing more. */
 export function buildDashboardApplicationSummary(
@@ -103,9 +108,15 @@ export function buildDashboardApplicationSummary(
     .filter((entry): entry is { planId: string; opportunityTitle: string; date: string } => entry.date !== null)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+  const upcomingDeadlineCount = upcoming.filter((entry) => {
+    const daysUntil = Math.floor((new Date(entry.date).getTime() - now.getTime()) / 86_400_000);
+    return daysUntil >= 0 && daysUntil <= DEADLINE_WINDOW_DAYS;
+  }).length;
+
   return {
     activeCount: active.length,
     overdueTaskCount,
     nearestDeadline: upcoming[0] ?? null,
+    upcomingDeadlineCount,
   };
 }

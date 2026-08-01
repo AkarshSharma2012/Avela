@@ -66,6 +66,7 @@
   --shadow-md: 0 4px 16px oklch(0.2 0.02 260 / 0.09);
   --color-gold: var(--gold);
   --color-gold-foreground: var(--gold-foreground);
+  --color-success-foreground: var(--success-foreground);
   --color-insight: var(--insight);
   --color-signal: var(--signal);
   --color-signal-foreground: var(--signal-foreground);
@@ -101,6 +102,7 @@
   --destructive: oklch(0.55 0.19 25);
   /* Success / "verified" / strong-fit: fresh lime-leaning green, used sparingly */
   --success: oklch(0.52 0.15 145);
+  --success-foreground: oklch(0.98 0.012 145);
   --warning: oklch(0.6 0.17 68);
   --warning-foreground: oklch(0.26 0.06 68);
   /* Secondary accent: warm gold — milestones, completion marks, sparks. Used
@@ -170,6 +172,7 @@
   --accent-foreground: var(--foreground);
   --destructive: oklch(0.68 0.18 25);
   --success: oklch(0.68 0.16 145);
+  --success-foreground: oklch(0.18 0.03 145);
   --warning: oklch(0.78 0.14 70);
   --warning-foreground: oklch(0.24 0.05 70);
   --gold: oklch(0.78 0.13 82);
@@ -412,6 +415,24 @@
 .animate-check-draw {
   stroke-dasharray: 24;
   animation: check-draw var(--duration-celebrate) var(--ease-standard) forwards;
+}
+
+/*
+ * Dashboard progress rings (ProgressGauge) — same stroke-dashoffset sweep
+ * as check-draw above, generalized via per-instance --gauge-circumference /
+ * --gauge-offset custom properties so one keyframe covers every percent.
+ */
+@keyframes gauge-fill {
+  from {
+    stroke-dashoffset: var(--gauge-circumference);
+  }
+  to {
+    stroke-dashoffset: var(--gauge-offset);
+  }
+}
+
+.animate-gauge-fill {
+  animation: gauge-fill var(--duration-celebrate) var(--ease-standard) both;
 }
 
 /*
