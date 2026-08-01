@@ -553,3 +553,170 @@ Same neutral-language, no-single-signal-proves-everything posture as Milestone 1
 - **Never falls back to production, structurally**: `src/lib/e2e/*` and `playwright.config.ts` only ever read `E2E_SUPABASE_URL`/`E2E_SUPABASE_ANON_KEY`/`E2E_SUPABASE_SERVICE_ROLE_KEY` — the app's normal `NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are read only to *compare against* (reject a match), never to connect.
 - **Owner-only, never public**: `portfolio_team_collaborators` (name/email/role), `portfolio_entry_narrative`, `portfolio_generic_profile_challenges` — same RLS posture as every other student-owned table introduced in prior milestones.
 - **Never collected this milestone either**: no new provider integration reads followers, stars, views, likes, ratings, revenue, or GPS/workout data — `strava`/`chess_com`/etc. registry entries are explicitly scoped to profile-bio proof-of-control only, documented in their own limitations field.
+
+---
+
+# Security — Milestone 10.10A (Security & Abuse Audit)
+
+Full audit-first pass across RLS, IDOR, public tokens, auth, rate limits,
+input validation, uploads, client/server boundary, headers, dependencies,
+logging, and business-logic abuse. **This does not certify the app as fully
+secure** — see "Risks not yet proven" below for what a static/one-session
+audit structurally cannot rule out.
+
+## What was verified live, not just read
+
+A script seeded two isolated local-Supabase users (A owns data, B attacks
+it) and ran 12 cross-user attempts directly against Postgrest with each
+user's own real session — no app code in between, so this tested RLS
+itself. Precisely, per table/operation:
+
+- **select**: B read A's `profiles`, `portfolio_items` (both by owner-id
+  and by a known row id), `student_reminders`, and `portfolio_review_links`.
+- **update**: B attempted to change A's `profiles.display_name` and A's
+  `portfolio_items.title`.
+- **delete**: B attempted to delete A's `portfolio_items` row. (Delete was
+  *not* separately tested against `student_reminders` or
+  `portfolio_review_links` this pass — both use the identical
+  `auth.uid() = user_id` delete-policy shape as `portfolio_items`, verified
+  by static read only, not live-attacked.)
+- **insert / ownership reassignment**: B attempted to insert a
+  `portfolio_items` row with `user_id = A`.
+- **anonymous (no session)**: read of A's `portfolio_items`, and read of
+  all `profiles` (enumeration check).
+
+**All 12 were blocked** — 11 as empty results, one (the
+ownership-reassignment insert) as an explicit Postgres `new row violates
+row-level security policy` error, the strongest form of denial. A's own
+read of her own row (positive control) succeeded, proving the negative
+results weren't just a broken client.
+
+## Confirmed findings (fixed)
+
+1. **Race condition in `submitConfirmationResponse`** (medium) — read the
+   request row, then wrote unconditionally; two concurrent submissions on
+   the same token could both pass the "not yet responded" check and one
+   would silently overwrite the other's response while the loser's caller
+   still saw `success: true`. Fixed by moving the guard conditions
+   (`responded_at is null`, `revoked_at is null`, `expires_at > now()`) into
+   the `UPDATE`'s own `WHERE`/filter clause and checking a row was actually
+   affected — Postgres re-evaluates a concurrent `UPDATE`'s `WHERE` clause
+   against the just-committed row before a second writer can proceed, so of
+   two racing submissions exactly one can ever match. Regression test:
+   `tests/confirmations/response-integrity.test.ts` (fires two real
+   concurrent requests against local Supabase, asserts exactly one
+   succeeds and the stored row matches the winner, plus a same-token
+   third-attempt-after-success case).
+2. **`getReviewLinkByTokenHash`'s doc comment didn't match its code**
+   (low) — claimed to "always re-check expiry/revocation," but the check
+   only lived in its one current caller (`getReviewLinkForReviewer`), which
+   happened to check both, so this was never actually exploitable today —
+   but a future second caller trusting the comment would have been. Fixed
+   by moving the same expiry/revocation check into the repository function
+   itself (defense-in-depth, no behavior change for the existing caller).
+   Regression tests added directly against the repository function in
+   `tests/review-links/expiry-integration.test.ts`.
+3. **No rate limit on review-link creation, confirmation-request
+   creation, or portfolio file uploads** (medium) — all three are
+   authenticated, client-reachable, unbounded writes (DB row growth for the
+   first two, Supabase Storage growth for uploads), the exact "cost-abuse"
+   shape every other write path in this codebase already guards with the
+   existing DB-backed `increment_rate_limit_counter()` (Milestone 10.7).
+   Fixed by extending `rate_limit_counters`' bucket check constraint
+   (`supabase/migrations/20260818000000_rate_limit_new_buckets.sql`) with
+   three new buckets — `review_link_create` (20/day),
+   `confirmation_request_create` (20/day), `portfolio_file_upload`
+   (50/hour) — generous enough that no legitimate student workflow is
+   affected, and wiring the existing `checkAndIncrementRateLimit()` call
+   into `createReviewLinkAction`, `createConfirmationRequestAction`, and
+   the upload Route Handler, exactly like every other rate-limited action.
+   Regression test: `tests/integrity/rate-limit-new-buckets-integration.test.ts`
+   proves the new buckets are accepted by the DB and that the configured
+   max is actually enforced by the Postgres function, not just present in
+   the config object — including a genuinely concurrent burst (`Promise.all`,
+   not a sequential loop) of `max + 10` simultaneous requests on a fresh
+   counter, asserting exactly `max` are allowed and that the returned
+   `count` values form a gapless, duplicate-free sequence (proof no two
+   concurrent callers ever read/wrote the same pre-increment value).
+
+## Confirmed findings (documented, not fixed this pass)
+
+- **No aggregate per-user storage quota or upload-count cap** beyond the
+  new rate limit above — a student could still reach the new 50/hour ×
+  per-file-size ceiling repeatedly across many hours. A real quota is a
+  product decision (what's the right total?), not a "smallest safe
+  change"; the rate limit closes the acute abuse case in the meantime.
+- **No security headers configured anywhere** — no CSP, `X-Frame-Options`
+  / `frame-ancestors`, `X-Content-Type-Options`, `Referrer-Policy`, or
+  `Permissions-Policy` in `next.config.ts` or a `middleware.ts` (none
+  exists). Not implemented this pass per explicit instruction not to add a
+  CSP without first verifying it against every real required source. The
+  app is close to CSP-friendly already: fonts are self-hosted at build
+  time via `next/font/google` (no runtime Google Fonts connection), no
+  third-party `<script src>` or CDN reference exists anywhere in `src/`,
+  and `dangerouslySetInnerHTML` is never used (grep-verified, zero
+  matches) — React's default escaping is the only HTML-injection defense
+  in place, and it's sufficient because nothing bypasses it. A reasonable
+  starting policy to verify before shipping:
+  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: <SUPABASE_URL>; connect-src 'self' <SUPABASE_URL>; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
+  (the `style-src 'unsafe-inline'` is Tailwind v4's runtime-injected
+  styles — a stricter nonce-based approach is possible but adds real
+  build/runtime wiring). `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: strict-origin-when-cross-origin` are safe to add with
+  effectively zero regression risk whenever this is picked up.
+- **Public review-link and pages already do the right thing structurally**:
+  `robots: { index: false, follow: false }` (noindex) and
+  `export const dynamic = "force-dynamic"` on both `/review/[token]` and
+  `/confirm/[token]`, and an explicit `Cache-Control: private, no-store` on
+  the export route. Not independently verified against a real CDN/reverse
+  proxy in front of a production deployment — recommend an explicit
+  `Cache-Control: no-store` response header on the page routes themselves
+  too, not only relying on Next's dynamic-render default, before launch.
+- **No email provider is wired up in any environment, including
+  production** (operational gap, not a vulnerability — see
+  `src/lib/email/provider.ts`): every "sent" email is currently a masked
+  server-console log line only. This means review-link/confirmation-request
+  notification emails don't actually reach anyone yet anywhere. Tracked
+  here because it's directly adjacent to this milestone's token-delivery
+  review, but it's a feature-completeness gap, not a security finding —
+  arguably the safer default until a real provider is deliberately wired.
+- **`npm audit`**: 6 findings before this pass (2 moderate, 4 high). Two
+  packages had safe, non-breaking fixes (`@hono/node-server`,
+  `brace-expansion`) and were updated via `npm audit fix` — both are
+  dev-only tooling (`shadcn` CLI, `eslint`/`typescript-eslint`), never
+  shipped to the production bundle. The remaining 3 high-severity findings
+  (`postcss`, `sharp` — both bundled *inside* `next@16.2.12` itself) have
+  no non-breaking fix; the suggested fix would downgrade `next` to `9.3.3`,
+  an unacceptable breaking change. Confirmed low real-world exploitability
+  in this app specifically: `next/image` (the only runtime consumer of
+  `sharp`) is never used anywhere in `src/` (grep-verified), and the
+  vulnerable `postcss` copy only ever processes this app's own trusted
+  first-party CSS at build time, never attacker-controlled input. Documented
+  as accepted risk pending an upstream Next.js patch release, not fixed.
+
+## Risks not yet proven (structurally out of scope for this pass)
+
+- RLS was verified for a representative sample of owner-scoped tables
+  (profiles, portfolio_items, student_reminders, portfolio_review_links)
+  plus a live insert-ownership-reassignment attempt — not all 47 tables
+  individually live-tested; the remaining tables were verified by reading
+  every `create policy` statement in every migration (113 policies) and
+  confirming each follows the same `auth.uid() = user_id` shape, but a
+  static read is not the same guarantee as a live attack for every table.
+- `application_tasks`' two-foreign-key insert policy (verifying both the
+  task's `user_id` and the parent `application_plan_id`'s owner match)
+  was verified by static code reading only — a live cross-user attempt
+  against it was scripted but skipped in this run because seeding a valid
+  `application_plans` row requires a real `opportunity_id` foreign key
+  that wasn't trivial to seed inside the audit script; the policy's SQL is
+  simple and unambiguous, but this is a documented gap, not a proven pass.
+- No CSP was implemented, so no live browser test of it exists either.
+- No production-equivalent deployment (real CDN, real reverse proxy, real
+  DNS) was available to test — every finding above about caching/headers
+  is about what the *application* sends, not what a specific hosting
+  setup might add or strip on top.
+- This audit did not attempt live social-engineering, phishing, or
+  physical-security scenarios — out of scope for a codebase/config audit.
+
+This document does not claim the app is fully secure, hack-proof, legally
+compliant, or ADA compliant.

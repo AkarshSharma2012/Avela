@@ -9,6 +9,7 @@
  */
 
 import { getAuthenticatedUser } from "@/lib/auth/dal";
+import { checkAndIncrementRateLimit } from "@/lib/integrity/rate-limit";
 import { hashVerificationToken, generateVerificationToken, computeVerificationExpiry, isTokenExpired } from "@/lib/verification/tokens";
 import {
   getReviewLinkByTokenHash,
@@ -41,6 +42,10 @@ export async function createReviewLinkAction(input: {
   if (input.items.length === 0) return { error: "Select at least one item to share." };
 
   const supabase = await createClient();
+
+  const rateLimit = await checkAndIncrementRateLimit(supabase, "review_link_create");
+  if (!rateLimit.allowed) return { error: "You've reached the limit for creating review links — try again later." };
+
   const rawToken = generateVerificationToken();
   const tokenHash = hashVerificationToken(rawToken);
   const expiresAt = computeVerificationExpiry(new Date(), REVIEW_LINK_DEFAULT_TTL_SECONDS).toISOString();

@@ -28,6 +28,13 @@ export const RATE_LIMITS: Record<RateLimitBucket, { windowSeconds: number; max: 
   connect_attempt: { windowSeconds: 60 * 60, max: 10 },
   possession_challenge: { windowSeconds: 60 * 60, max: 5 },
   reviewer_decision: { windowSeconds: 60 * 60, max: 100 },
+  // Milestone 10.10A security audit: these three had no limit at all —
+  // generous enough that no legitimate student workflow (sharing a
+  // portfolio with several schools, requesting a few confirmations,
+  // uploading a batch of evidence files for one project) is ever affected.
+  review_link_create: { windowSeconds: 60 * 60 * 24, max: 20 },
+  confirmation_request_create: { windowSeconds: 60 * 60 * 24, max: 20 },
+  portfolio_file_upload: { windowSeconds: 60 * 60, max: 50 },
 };
 
 /** Truncates "now" to the start of its fixed window — every request in the same window shares one counter row. */

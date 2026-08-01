@@ -128,6 +128,52 @@ maybeDescribe("review link expiry/revocation — real local Supabase", () => {
     expect(view).not.toBeNull();
     expect(view?.title).toBe("[E2E TEST] valid link");
   });
+
+  /**
+   * Milestone 10.10A security audit: getReviewLinkByTokenHash's own doc
+   * comment claims it re-checks expiry/revocation, but it didn't — only its
+   * one current caller (getReviewLinkForReviewer, tested above) happened to
+   * check both before returning data. These tests pin the repository
+   * function's own contract directly, so a future caller that trusts the
+   * comment can't reintroduce the gap unnoticed.
+   */
+  it("getReviewLinkByTokenHash itself (not just its caller) returns null for an expired link", async () => {
+    const { getReviewLinkByTokenHash } = await import("@/lib/review-links/repository");
+    const tokenHash = hashVerificationToken(generateVerificationToken());
+    const pastExpiry = new Date(Date.now() - 60_000).toISOString();
+
+    const { data: link, error } = await serviceClient
+      .from("portfolio_review_links")
+      .insert({ user_id: userId, title: "[E2E TEST] repo-level expired link", token_hash: tokenHash, expires_at: pastExpiry })
+      .select("id")
+      .single();
+    if (error || !link) throw new Error(`failed to insert test link: ${error?.message}`);
+    createdLinkIds.push(link.id);
+
+    expect(await getReviewLinkByTokenHash(tokenHash)).toBeNull();
+  });
+
+  it("getReviewLinkByTokenHash itself (not just its caller) returns null for a revoked link", async () => {
+    const { getReviewLinkByTokenHash } = await import("@/lib/review-links/repository");
+    const tokenHash = hashVerificationToken(generateVerificationToken());
+    const futureExpiry = new Date(Date.now() + 60_000 * 60).toISOString();
+
+    const { data: link, error } = await serviceClient
+      .from("portfolio_review_links")
+      .insert({
+        user_id: userId,
+        title: "[E2E TEST] repo-level revoked link",
+        token_hash: tokenHash,
+        expires_at: futureExpiry,
+        revoked_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (error || !link) throw new Error(`failed to insert test link: ${error?.message}`);
+    createdLinkIds.push(link.id);
+
+    expect(await getReviewLinkByTokenHash(tokenHash)).toBeNull();
+  });
 });
 
 if (!isolated) {

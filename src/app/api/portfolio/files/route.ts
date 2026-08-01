@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedUser } from "@/lib/auth/dal";
+import { checkAndIncrementRateLimit } from "@/lib/integrity/rate-limit";
 import { computeContentHash, stripJpegExif } from "@/lib/portfolio/image-integrity";
 import * as repo from "@/lib/portfolio/repository";
 import { buildPortfolioStoragePath, sanitizeOriginalFilename, validatePortfolioFileSize, validatePortfolioFileType } from "@/lib/portfolio/storage";
@@ -43,6 +44,11 @@ export async function POST(request: Request) {
   if (sizeError) return NextResponse.json({ error: sizeError }, { status: 400 });
 
   const supabase = await createClient();
+
+  const rateLimit = await checkAndIncrementRateLimit(supabase, "portfolio_file_upload");
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "You've reached the upload limit for now — try again later." }, { status: 429 });
+  }
 
   if (portfolioItemId) {
     const item = await repo.getPortfolioItem(supabase, user.id, portfolioItemId);

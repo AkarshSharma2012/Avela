@@ -12,6 +12,7 @@
 
 import { getAuthenticatedUser } from "@/lib/auth/dal";
 import { applyDimensionTransition, ensureDimensionRow } from "@/lib/claims/repository";
+import { checkAndIncrementRateLimit } from "@/lib/integrity/rate-limit";
 import { ALL_CLAIM_DIMENSIONS, CLAIM_DIMENSION_LABELS } from "@/lib/claims/constants";
 import {
   createConfirmationServiceRoleClient,
@@ -46,6 +47,10 @@ export async function createConfirmationRequestAction(input: {
   if (validDimensions.length === 0) return { error: "Choose at least one thing to ask about." };
 
   const supabase = await createClient();
+
+  const rateLimit = await checkAndIncrementRateLimit(supabase, "confirmation_request_create");
+  if (!rateLimit.allowed) return { error: "You've reached the limit for creating confirmation requests — try again later." };
+
   const rawToken = generateVerificationToken();
   const tokenHash = hashVerificationToken(rawToken);
   const expiresAt = computeVerificationExpiry(new Date(), CONFIRMATION_LINK_TTL_SECONDS).toISOString();

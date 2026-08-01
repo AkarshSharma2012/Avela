@@ -90,6 +90,15 @@ export type SubmitConfirmationResponseResult = { success: true } | { success: fa
  * and every attempt (successful or not) increments attempt_count as a
  * simple rate-limit/audit signal (spec Part 10/14) — never silently
  * retried past MAX_RESPONSE_ATTEMPTS.
+ *
+ * The initial guard checks below can read a stale row if two requests race
+ * (Milestone 10.10A security audit finding), so the write itself repeats
+ * the responded_at/revoked_at/expires_at conditions in the UPDATE's own
+ * WHERE clause. Postgres re-evaluates that clause against the row's
+ * just-committed state before a second, concurrent UPDATE is allowed to
+ * apply — so of two racing submissions, only one can ever match and win;
+ * the loser affects zero rows and is treated the same as "already
+ * submitted", never silently overwriting the winner's response.
  */
 export async function submitConfirmationResponse(
   tokenHash: string,
@@ -105,16 +114,24 @@ export async function submitConfirmationResponse(
   if (request.responded_at) return { success: false, error: "This confirmation has already been submitted." };
   if (request.attempt_count >= MAX_RESPONSE_ATTEMPTS) return { success: false, error: "Too many attempts on this link." };
 
-  const { error } = await supabase
+  const nowIso = new Date().toISOString();
+  const { data: updated, error } = await supabase
     .from("portfolio_confirmation_requests")
     .update({
       response_status: status,
       response_note: note,
-      responded_at: new Date().toISOString(),
+      responded_at: nowIso,
       attempt_count: request.attempt_count + 1,
     })
-    .eq("id", request.id);
+    .eq("id", request.id)
+    .is("responded_at", null)
+    .is("revoked_at", null)
+    .gt("expires_at", nowIso)
+    .select("id");
 
   if (error) return { success: false, error: "Couldn't record your response. Please try again." };
+  if (!updated || updated.length === 0) {
+    return { success: false, error: "This confirmation has already been submitted." };
+  }
   return { success: true };
 }

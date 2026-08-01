@@ -9,6 +9,7 @@
  */
 
 import { createVerificationServiceRoleClient } from "@/lib/verification/repository";
+import { isTokenExpired } from "@/lib/verification/tokens";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import type { PortfolioFile, PortfolioItem, PortfolioReviewLink, PortfolioReviewLinkItem } from "@/types/portfolio";
@@ -72,12 +73,23 @@ export type ReviewLinkView = {
   items: (PortfolioReviewLinkItem & { item: PortfolioItem; files: PortfolioFile[] })[];
 };
 
-/** Service-role only — the reviewer has no session, so this is the one read path in this module that never goes through RLS. Always re-checks expiry/revocation itself; never trusts a caller to have already checked. */
+/**
+ * Service-role only — the reviewer has no session, so this is the one read
+ * path in this module that never goes through RLS. Re-checks
+ * expiry/revocation itself (Milestone 10.10A security audit: this used to
+ * only be documented, not actually enforced here — getReviewLinkForReviewer
+ * happened to check both before returning data, so today's one caller was
+ * never actually exploitable, but a future caller that trusted this
+ * function's own doc comment would have been) — never trusts a caller to
+ * have already checked.
+ */
 export async function getReviewLinkByTokenHash(tokenHash: string): Promise<ReviewLinkView | null> {
   const supabase = createVerificationServiceRoleClient();
 
   const { data: link } = await supabase.from("portfolio_review_links").select("*").eq("token_hash", tokenHash).maybeSingle();
   if (!link) return null;
+  if (link.revoked_at) return null;
+  if (isTokenExpired(link.expires_at)) return null;
 
   const { data: linkItems } = await supabase.from("portfolio_review_link_items").select("*").eq("review_link_id", link.id);
   const items = linkItems ?? [];

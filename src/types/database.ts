@@ -583,7 +583,10 @@ export type RateLimitBucket =
   | "osint_check"
   | "connect_attempt"
   | "possession_challenge"
-  | "reviewer_decision";
+  | "reviewer_decision"
+  | "review_link_create"
+  | "confirmation_request_create"
+  | "portfolio_file_upload";
 
 // Reviewer/Admin Roles (Milestone 10.7)
 
