@@ -185,7 +185,21 @@ test.describe("External confirmation — completion and scope limited to request
     await reviewerPage.screenshot({ path: `${SCREENSHOT_DIR}/external-confirmation.png` });
 
     await reviewerPage.getByRole("button", { name: "I can confirm this" }).click();
-    await expect(reviewerPage.getByText("Thanks — your response has been recorded.")).toBeVisible({ timeout: 10_000 });
+
+    // Milestone 10.10B2A: the success state is announced to assistive
+    // technology (role=status) with a clear heading, and focus moves off
+    // <body> into it — see docs/audit-10.10b1/accessibility-defects.md
+    // defect #1.
+    const status = reviewerPage.getByRole("status");
+    await expect(status).toBeVisible({ timeout: 10_000 });
+    await expect(status.getByRole("heading", { name: "Response recorded" })).toBeVisible();
+    await expect(status).toContainText("Thanks — your response has been recorded.");
+    const focusInfo = await reviewerPage.evaluate(() => ({
+      isBody: document.activeElement === document.body,
+      role: document.activeElement?.getAttribute("role"),
+    }));
+    expect(focusInfo.isBody).toBe(false);
+    expect(focusInfo.role).toBe("status");
 
     // A second attempt at the same (now single-use) link is rejected.
     await reviewerContext.close();

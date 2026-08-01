@@ -538,8 +538,21 @@ async function resolveVerifierClaim(
     reason: next.reason ?? null,
   });
 
-  revalidatePath(`/portfolio/items/${claim.verification.portfolio_item_id}`);
-  revalidatePath("/portfolio");
+  // Deliberately no revalidatePath() here. This action is invoked from
+  // /verify/[token] by an anonymous verifier who was never on
+  // /portfolio/items/[id] or /portfolio — those pages already read via the
+  // student's own cookie-authenticated client, which Next.js forces into
+  // per-request dynamic rendering, so they're never server-cache-stale for
+  // the student's next real visit regardless. Calling revalidatePath here
+  // previously set the current Server Action's pathWasRevalidated flag,
+  // which Next.js's App Router uses to force a refetch of the *invoking*
+  // route (i.e. /verify/[token] itself) after the action returns — even
+  // though neither revalidated path was /verify/[token]. That forced
+  // refetch ran findVerifierClaimByTokenHash() again with the
+  // now-single-use-consumed token, which correctly returns "no claim," and
+  // replaced VerifierResponseForm's in-memory success state with the
+  // page's "This verification link isn't valid, or has already been used"
+  // fallback — for every verifier, immediately after a successful response.
   return {};
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
@@ -19,9 +19,27 @@ function VerifierResponseForm({ token }: { token: string }) {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const successRef = useRef<HTMLDivElement>(null);
+
+  // Runs only when a real successful submission flips mode to "done" — never
+  // on initial mount (mode starts "idle") and never for an error, which sets
+  // `error` instead of `mode`.
+  useEffect(() => {
+    if (mode === "done") successRef.current?.focus();
+  }, [mode]);
 
   if (mode === "done") {
-    return <p className="rounded-md border border-border bg-secondary px-4 py-3 text-sm text-foreground">{doneMessage}</p>;
+    return (
+      <div
+        ref={successRef}
+        role="status"
+        tabIndex={-1}
+        className="rounded-md border border-border bg-secondary px-4 py-3 outline-none focus:ring-3 focus:ring-ring/30"
+      >
+        <h2 className="text-sm font-medium text-foreground">Response recorded</h2>
+        <p className="mt-1 text-sm text-foreground">{doneMessage}</p>
+      </div>
+    );
   }
 
   function handleConfirm() {
